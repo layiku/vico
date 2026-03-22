@@ -108,7 +108,7 @@ vico/
 | **File I/O** | `ViURLManager`, `ViFileURLHandler`, `ViHTTPURLHandler`, `ViSFTPURLHandler` | URL scheme-based file operations |
 | **Scripting** | `Nu.h`, `ViEventManager`, `vicotool` (util/) | Nu language runtime, 30+ event types, CLI↔app XPC |
 
-For a full file-by-file reference, see [vico-architect.md](vico-architect.md).
+For a full file-by-file reference, see [vico-architect.md](vico-architect.md). For a deep dive into how every subsystem works (from keystroke to screen), see [how-vico-works.md](how-vico-works.md).
 
 ---
 
@@ -135,6 +135,17 @@ This fork restores Vico to build and run on **Xcode 16+ / macOS 13+ (Ventura and
 | **15** | Replaced `-lcrypto` linker flag with CommonCrypto (removed last OpenSSL dependency) |
 
 For full details, see [CHANGELOG.md](CHANGELOG.md).
+
+### Why XIBs Were Migrated to Code (Not Upgraded)
+
+The original plan was to upgrade Vico's 14 old-format XIB files (archive v7.10) to the modern format (v3.0) using `ibtool --upgrade`. We abandoned that plan because **`ibtool` is fundamentally broken for complex legacy XIBs**:
+
+- **Silently drops Cocoa Bindings** — converted XIBs compile without error but bound controls show no data at runtime
+- **Corrupts outlet connections** — complex XIBs with 50+ outlets come out with broken or reassigned connection IDs, causing `setValue:forUndefinedKey:` crashes on launch
+- **Can't handle shared-owner patterns** — XIBs loaded by multiple classes lose connections for all but one caller
+- **Doesn't update deprecated widgets** — `NSForm`, `NSMatrix`, deprecated `NSBox` border types survive unchanged
+
+All 14 XIBs were deleted and rebuilt as programmatic AppKit code — fully diffable, compile-time verified, and free of Interface Builder dependencies forever. For the full story, see [why-we-migrated-xib-to-code.md](why-we-migrated-xib-to-code.md).
 
 ### Modernization Principles
 
