@@ -1,0 +1,9 @@
+#define AND                             1
+#define OR                              2
+#define COMMA                           3
+#define MINUS                           4
+#define LPAREN                          5
+#define RPAREN                          6
+#define DOLLAR                          7
+#define SCOPE                           8
+#define GT                              9

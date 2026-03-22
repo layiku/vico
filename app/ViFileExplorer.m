@@ -127,7 +127,7 @@
 	[explorer setTarget:self];
 	[explorer setDoubleAction:@selector(explorerDoubleClick:)];
 	[explorer setAction:@selector(explorerClick:)];
-	[[sftpConnectForm cellAtIndex:1] setPlaceholderString:NSUserName()];
+	[sftpUserField setPlaceholderString:NSUserName()];
 	[actionButtonCell setImage:[NSImage imageNamed:@"actionmenu"]];
 	[actionButton setMenu:actionMenu];
 	[actionMenu setDelegate:self];
@@ -302,8 +302,8 @@
 	// make a retainable copy on the heap
 	void (^blockCopy)(NSMutableArray *, NSError *) = [aBlock copy];
 	id<ViDeferred> deferred = [um contentsOfDirectoryAtURL:url onCompletion:^(NSArray *files, NSError *error) {
-		[progressIndicator setHidden:YES];
-		[progressIndicator stopAnimation:nil];
+        [self->progressIndicator setHidden:YES];
+		[self->progressIndicator stopAnimation:nil];
 		if (error) {
 			INFO(@"failed to read contents of folder %@", url);
 			blockCopy(nil, error);
@@ -366,26 +366,26 @@
 		if (error) {
 			NSAlert *alert = [NSAlert alertWithError:error];
 			[alert runModal];
-			_rootURL = prevRootURL;
+            self->_rootURL = prevRootURL;
 		} else {
 			if (jump)
-				[_history push:[ViMark markWithURL:_rootURL]];
+                [self->_history push:[ViMark markWithURL:self->_rootURL]];
 			if (display)
 				[self openExplorerTemporarily:NO];
 
-			_rootItems = children;
+            self->_rootItems = children;
 
 
 			[self filterFiles:self];
 			[self resetExpandedItems];
-			[pathControl setURL:aURL];
+            [self->pathControl setURL:aURL];
 
-			[windowController setBaseURL:_rootURL];
+            [self->windowController setBaseURL:self->_rootURL];
 
-			if (!jump || ([[explorer selectedRowIndexes] count] == 0 && [window firstResponder] == explorer))
+            if (!jump || ([[self->explorer selectedRowIndexes] count] == 0 && [self->window firstResponder] == self->explorer))
 				[self selectItemAtRow:0];
 
-			[[ViEventManager defaultManager] emit:ViEventExplorerRootChanged for:self with:self, _rootURL, nil];
+            [[ViEventManager defaultManager] emit:ViEventExplorerRootChanged for:self with:self, self->_rootURL, nil];
 		}
 	}];
 }
@@ -535,7 +535,7 @@
 	NSIndexSet *set = [explorer selectedRowIndexes];
 	if ([set count] > 0)
 		p = [explorer rectOfRow:[set firstIndex]].origin;
-	NSEvent *ev = [NSEvent mouseEventWithType:NSLeftMouseDown
+	NSEvent *ev = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown
 	                                 location:[explorer convertPoint:p toView:nil]
 	                            modifierFlags:0
 	                                timestamp:1
@@ -591,20 +591,20 @@
 
 - (IBAction)acceptSftpSheet:(id)sender
 {
-	if ([[[sftpConnectForm cellAtIndex:0] stringValue] length] == 0) {
+	if ([[sftpHostField stringValue] length] == 0) {
 		NSBeep();
-		[sftpConnectForm selectTextAtIndex:0];
+		[[sftpHostField window] makeFirstResponder:sftpHostField];
 		return;
 	}
 	[NSApp endSheet:sftpConnectView];
-	NSString *host = [[sftpConnectForm cellAtIndex:0] stringValue];
-	NSString *user = [[sftpConnectForm cellAtIndex:1] stringValue];	/* might be blank */
-	NSString *path = [[sftpConnectForm cellAtIndex:2] stringValue];
+	NSString *host = [sftpHostField stringValue];
+	NSString *user = [sftpUserField stringValue];	/* might be blank */
+	NSString *path = [sftpPathField stringValue];
 
 	if (![path hasPrefix:@"/"])
 		path = [NSString stringWithFormat:@"/~/%@", path];
 	NSURL *url;
-	path = [path stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+	path = [path stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
 	if ([user length] > 0)
 		url = [NSURL URLWithString:[NSString stringWithFormat:@"sftp://%@@%@%@", user, host, path]];
 	else
@@ -619,11 +619,9 @@
 
 - (IBAction)addSFTPLocation:(id)sender
 {
-	[NSApp beginSheet:sftpConnectView
-	   modalForWindow:window
-	    modalDelegate:self
-	   didEndSelector:@selector(sftpSheetDidEnd:returnCode:contextInfo:)
-	      contextInfo:nil];
+	[window beginSheet:sftpConnectView completionHandler:^(NSModalResponse returnCode) {
+        [self sftpSheetDidEnd:self->sftpConnectView returnCode:(int)returnCode contextInfo:nil];
+	}];
 }
 
 - (NSIndexSet *)clickedIndexes
@@ -728,9 +726,9 @@
 		NSMutableSet *openDocs = [NSMutableSet set];
 		for (NSURL *url in urls) {
 			id item = [self findItemWithURL:url];
-			id parent = [explorer parentForItem:item];
+            id parent = [self->explorer parentForItem:item];
 			if (parent == nil)
-				[set addObject:_rootURL];
+                [set addObject:self->_rootURL];
 			else
 				[set addObject:[[self fileForItem:parent] url]];
 
@@ -743,7 +741,7 @@
 		for (NSURL *url in set)
 			[[ViURLManager defaultManager] notifyChangedDirectoryAtURL:url];
 
-		if (_isFiltered)
+        if (self->_isFiltered)
 			[self resetExplorerView];
 		[self cancelExplorer];
 
@@ -760,13 +758,12 @@
 			[alert addButtonWithTitle:[NSString stringWithFormat:@"Keep document%s open", pluralS]];
 			[alert addButtonWithTitle:[NSString stringWithFormat:@"Close deleted document%s", pluralS]];
 			[alert setInformativeText:[NSString stringWithFormat:@"%lu open document%s was deleted. Any unsaved changes will be lost if the document%s %s closed.", nopen, pluralS, pluralS, nopen == 1 ? "is" : "are"]];
-			[alert setAlertStyle:NSWarningAlertStyle];
+			[alert setAlertStyle:NSAlertStyleWarning];
 
-			[_contextObjects addObject:openDocs];
-			[alert beginSheetModalForWindow:window
-					  modalDelegate:self
-					 didEndSelector:@selector(deletedOpenDocumentsAlertDidEnd:returnCode:contextInfo:)
-					    contextInfo:(__bridge void *)(openDocs)];
+            [self->_contextObjects addObject:openDocs];
+            [alert beginSheetModalForWindow:self->window completionHandler:^(NSModalResponse returnCode) {
+				[self deletedOpenDocumentsAlertDidEnd:alert returnCode:returnCode contextInfo:(__bridge void *)(openDocs)];
+			}];
 
 		}
 	}];
@@ -801,17 +798,16 @@
 	[alert addButtonWithTitle:@"Cancel"];
 	if (isLocal) {
 		[alert setInformativeText:[NSString stringWithFormat:@"%lu file%s will be moved to the trash.", nselected, pluralS]];
-		[alert setAlertStyle:NSWarningAlertStyle];
+		[alert setAlertStyle:NSAlertStyleWarning];
 	} else {
 		[alert setInformativeText:[NSString stringWithFormat:@"%lu file%s will be deleted immediately. This operation cannot be undone!", nselected, pluralS]];
-		[alert setAlertStyle:NSCriticalAlertStyle];
+		[alert setAlertStyle:NSAlertStyleCritical];
 	}
 
 	[_contextObjects addObject:urls];
-	[alert beginSheetModalForWindow:window
-			  modalDelegate:self
-			 didEndSelector:@selector(removeAlertDidEnd:returnCode:contextInfo:)
-			    contextInfo:(__bridge void *)urls];
+	[alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse returnCode) {
+		[self removeAlertDidEnd:alert returnCode:returnCode contextInfo:(__bridge void *)urls];
+	}];
 }
 
 - (NSSet *)clickedURLs
@@ -976,7 +972,7 @@
 
 - (void)explorerClick:(id)sender
 {
-	if ([[NSApp currentEvent] modifierFlags] & NSCommandKeyMask)
+	if ([[NSApp currentEvent] modifierFlags] & NSEventModifierFlagCommand)
 		return;
 
 	NSIndexSet *set = [explorer selectedRowIndexes];
@@ -997,7 +993,7 @@
 		return;
 
 	/* Open in splits instead if alt key pressed. */
-	if ([[NSApp currentEvent] modifierFlags] & NSAlternateKeyMask)
+	if ([[NSApp currentEvent] modifierFlags] & NSEventModifierFlagOption)
 		[self openInSplit:sender];
 	else
 		[self openDocuments:sender];
@@ -1236,10 +1232,10 @@
 	[self childrenAtURL:file.targetURL onCompletion:^(NSMutableArray *children, NSError *error) {
 		if (error) {
 			/* schedule re-read of parent folder */
-			ViFile *parent = [explorer parentForItem:file];
+            ViFile *parent = [self->explorer parentForItem:file];
 			if (parent) {
 				DEBUG(@"scheduling re-read of parent item %@", parent);
-				[_itemsToFilter addObject:parent];
+                [self->_itemsToFilter addObject:parent];
 			} else
 				DEBUG(@"no parent for item %@", file);
 		} else {
@@ -1646,14 +1642,14 @@ doCommandBySelector:(SEL)aSelector
 			[alert runModal];
 		} else {
 			/* The notification should already have reloaded the data. */
-			[explorer expandItem:[self findItemWithURL:aURL]];
+            [self->explorer expandItem:[self findItemWithURL:aURL]];
 
 			if (renameURL) {
 				id item = [self findItemWithURL:renameURL];
 				if (item) {
-					NSInteger row = [explorer rowForItem:item];
+                    NSInteger row = [self->explorer rowForItem:item];
 					[self selectItemAtRow:row];
-					[explorer editColumn:0 row:row withEvent:nil select:YES];
+                    [self->explorer editColumn:0 row:row withEvent:nil select:YES];
 				}
 			} else if (selectedURL) {
 				[self selectItemWithURL:selectedURL];
@@ -1733,8 +1729,8 @@ doCommandBySelector:(SEL)aSelector
 		} else {
 			file.children = children;
 			if (directoryContentsIsAsync) {
-				[explorer reloadData];
-				[explorer expandItem:file];
+                [self->explorer reloadData];
+                [self->explorer expandItem:file];
 			}
 		}
 	}];
@@ -1784,12 +1780,12 @@ doCommandBySelector:(SEL)aSelector
 		} else {
 			DEBUG(@"updating renamed file %@ with new url %@ (really %@)", file, newurl, normalizedURL);
 			if (!file.isLink) {
-				ViDocument *doc = [windowController documentForURL:file.targetURL];
+                ViDocument *doc = [self->windowController documentForURL:file.targetURL];
 				[doc setFileURL:normalizedURL];
 			}
 			[file setURL:newurl];
 			[file setTargetURL:normalizedURL];
-			[explorer reloadData];
+            [self->explorer reloadData];
 
 			[[ViURLManager defaultManager] notifyChangedDirectoryAtURL:parentURL];
 		}

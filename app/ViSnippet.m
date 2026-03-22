@@ -153,7 +153,7 @@
 				if (tabStop < 0) {
 					if (outError)
 						*outError = [ViError errorWithFormat:@"Negative tab stop number %li", tabStop];
-					return NO;
+					return nil;
 				}
 				value = nil;
 				DEBUG(@"got tab stop %li at %lu", tabStop, [s length]);
@@ -173,7 +173,7 @@
 			} else {
 				if (outError)
 					*outError = [ViError errorWithFormat:@"Invalid shell variable name at character %lu", [scan scanLocation] + 1];
-				return NO;
+				return nil;
 			}
 
 			regexp = nil;
@@ -196,7 +196,7 @@
 					                   scannedLength:&len
 					                           error:outError];
 					if (!defaultValue)
-						return NO;
+						return nil;
 					DEBUG(@"nested parse scanned %lu characters and returned [%@]", len, defaultValue);
 					[scan setScanLocation:[scan scanLocation] + len];
 				} else if ([scan scanString:@"/" intoString:nil]) {
@@ -210,7 +210,7 @@
 						if (outError)
 							*outError = [ViError errorWithFormat:@"Missing separating slash at %lu",
 							    [scan scanLocation] + 1];
-						return NO;
+						return nil;
 					}
 
 					/*
@@ -233,7 +233,7 @@
 
 					rx = [ViRegexp regexpWithString:regexp options:opts error:outError];
 					if (rx == nil)
-						return NO;
+						return nil;
 
 					value = [self transformValue:(value ?: @"")
 					                 withPattern:rx
@@ -241,7 +241,7 @@
 							      global:([options rangeOfString:@"g"].location != NSNotFound)
 					                       error:outError];
 					if (value == nil)
-						return NO;
+						return nil;
 				}
 
 				if ([scan scanString:@"|" intoString:nil]) {
@@ -253,7 +253,7 @@
 						if (outError)
 							*outError = [ViError errorWithFormat:
 							    @"Unterminated shell pipe beginning at character %lu", startLocation + 1];
-						return NO;
+						return nil;
 					}
 					DEBUG(@"got shell pipe [%@], input is [%@]", filter, value);
 					if (ts == nil) {
@@ -261,7 +261,7 @@
 								    withInput:(value ?: @"")
 									error:outError];
 						if (value == nil)
-							return NO;
+							return nil;
 					}
 				}
 
@@ -269,7 +269,7 @@
 					if (outError)
 						*outError = [ViError errorWithFormat:@"Missing closing brace at %lu",
 						    [scan scanLocation] + 1];
-					return NO;
+					return nil;
 				}
 			}
 
@@ -312,11 +312,11 @@
 			    ![scan scanString:@"`" intoString:nil]) {
 				if (outError)
 					*outError = [ViError errorWithFormat:@"Unterminated shell command beginning at character %lu", startLocation + 1];
-				return NO;
+				return nil;
 			}
 			NSMutableString *output = [self runShellCommand:shellCommand withInput:@"" error:outError];
 			if (output == nil)
-				return NO;
+				return nil;
 			[s appendString:output];
 		} else {
 			NSString *insChar = [NSString stringWithFormat:@"%C", ch];
@@ -374,7 +374,7 @@
 	_finished = ([_tabstops count] == 0);
 
 	if (![self updateTabstopsError:outError])
-		return NO;
+		return nil;
 	DEBUG(@"inserted string = [%@]", [self string]);
 
 	if (_finished)

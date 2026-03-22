@@ -359,7 +359,7 @@
 		if (r.length > 0 && [capture objectForKey:@"patterns"]) {
 			DEBUG(@"got capture [%@] at %u + %u", [capture objectForKey:@"patterns"], r.location, r.length);
 
-			[self applyPatterns:[capture objectForKey:@"patterns"] inRange:r openMatches:[NSArray array] reachedEOL:NO];
+			[self applyPatterns:[capture objectForKey:@"patterns"] inRange:r openMatches:[NSArray array] reachedEOL:NULL];
 		} else if (r.length > 0 && [capture objectForKey:@"name"]) {
 			DEBUG(@"got capture [%@] at %u + %u", [capture objectForKey:@"name"], r.location, r.length);
 

@@ -1,7 +1,27 @@
-*.swp
-app/scope_selector.[ch]
+# Xcode
+build/
+DerivedData/
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# Lemon parser generator output (scope_selector.c is now committed directly)
 app/scope_selector.out
-build
-Nu.framework
-xcuserdata
+
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Obsolete vendored frameworks
+Nu.framework
+
+# Phase info files (development notes)
+phase-*-info.md
+xib-file-analysis-result.md
+what-we-learned-in-old-cocoa-modernizetion-project.md

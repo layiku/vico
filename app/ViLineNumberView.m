@@ -128,13 +128,17 @@
 #pragma mark -
 #pragma mark String image initialization
 
-- (void)drawString:(NSString *)string intoImage:(NSImage *)image
+- (NSImage *)imageForString:(NSString *)string
 {
-	[image lockFocusFlipped:NO];
-	[_backgroundColor set];
-	NSRectFill(NSMakeRect(0, 0, _digitSize.width, _digitSize.height));
-	[string drawAtPoint:NSMakePoint(0.5,0.5) withAttributes:_textAttributes];
-	[image unlockFocus];
+	NSColor *bgColor = _backgroundColor;
+	NSDictionary *textAttrs = _textAttributes;
+	NSSize digitSize = _digitSize;
+	return [NSImage imageWithSize:digitSize flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+		[bgColor set];
+		NSRectFill(NSMakeRect(0, 0, digitSize.width, digitSize.height));
+		[string drawAtPoint:NSMakePoint(0.5,0.5) withAttributes:textAttrs];
+		return YES;
+	}];
 }
 
 - (void)resetTextAttributes
@@ -152,9 +156,7 @@
 
 	for (int i = 0; i < 10; i++) {
 		NSString *lineNumberString = [NSString stringWithFormat:@"%i", i];
-		_digits[i] = [[NSImage alloc] initWithSize:_digitSize];
-
-		[self drawString:lineNumberString intoImage:_digits[i]];
+		_digits[i] = [self imageForString:lineNumberString];
 	}
 
 	[self setNeedsDisplay:YES];
@@ -205,7 +207,7 @@
 
 		[_digits[remainder] drawInRect:rect
 							  fromRect:NSZeroRect
-							 operation:NSCompositeSourceOver
+							 operation:NSCompositingOperationSourceOver
 							  fraction:1.0
 						respectFlipped:YES
 								 hints:nil];
@@ -220,7 +222,7 @@
 		ViTextStorage *textStorage = _textView.viTextStorage;
 		[textStorage enumerateAttribute:ViFoldedAttributeName
 								inRange:NSMakeRange(0u, location)
-								options:NULL
+								options:0
 							 usingBlock:^(ViFold *fold, NSRange foldedRange, BOOL *s) {
 			 // Unfolded ranges don't affect the logical line.
 			 if (! fold) return;

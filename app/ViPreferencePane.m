@@ -36,7 +36,7 @@
              icon:(NSImage *)anIcon
 {
 	if ((self = [super init]) != nil) {
-		if (![nib instantiateWithOwner:self topLevelObjects:nil]) {
+		if (nib && ![nib instantiateWithOwner:self topLevelObjects:nil]) {
 			return nil;
 		}
 		_paneName = [aName copy];

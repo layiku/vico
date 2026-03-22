@@ -795,7 +795,7 @@ replaceCharactersInRange:(NSRange)aRange
 {
 	length = IMAX(length, 0);
 	NSInteger tabstop = [[self preference:@"tabstop"] integerValue];
-	if ([[self preference:@"expandtab"] integerValue] == NSOnState) {
+	if ([[self preference:@"expandtab"] integerValue] == NSControlStateValueOn) {
 		// length * " "
 		return [@"" stringByPaddingToLength:length withString:@" " startingAtIndex:0];
 	} else {
@@ -1021,7 +1021,7 @@ replaceCharactersInRange:(NSRange)aRange
 	} else
 		[self insertString:@"\n" atLocation:aLocation];
 
-	if ([[self preference:@"autoindent"] integerValue] == NSOnState) {
+	if ([[self preference:@"autoindent"] integerValue] == NSControlStateValueOn) {
 		if (indentForward)
 			aLocation += 1;
 
@@ -2010,7 +2010,7 @@ replaceCharactersInRange:(NSRange)aRange
 		}
 	}
 
-	if ([[self preference:@"smarttab" atLocation:start_location] integerValue] == NSOnState) {
+	if ([[self preference:@"smarttab" atLocation:start_location] integerValue] == NSControlStateValueOn) {
 		/* Check if we're in leading whitespace. */
 		NSUInteger firstNonBlank = [[self viTextStorage] firstNonBlankForLineAtLocation:start_location];
 		if (firstNonBlank == NSNotFound || firstNonBlank >= start_location) {
@@ -2021,7 +2021,7 @@ replaceCharactersInRange:(NSRange)aRange
 
 	// otherwise just insert a tab
 	NSString *tabString = @"\t";
-	if ([[self preference:@"expandtab" atLocation:start_location] integerValue] == NSOnState) {
+	if ([[self preference:@"expandtab" atLocation:start_location] integerValue] == NSControlStateValueOn) {
 		NSInteger tabstop = [[self preference:@"tabstop" atLocation:start_location] integerValue];
 		NSInteger nspaces = tabstop - (([self currentColumn] - 1) % tabstop);
 		tabString = [@"" stringByPaddingToLength:nspaces withString:@" " startingAtIndex:0];
@@ -2079,7 +2079,7 @@ replaceCharactersInRange:(NSRange)aRange
 		}
 	}
 
-	if ([[self preference:@"smarttab" atLocation:start_location] integerValue] == NSOnState) {
+	if ([[self preference:@"smarttab" atLocation:start_location] integerValue] == NSControlStateValueOn) {
 		/* Check if we're in leading whitespace and not at BOL. */
 		NSUInteger bol;
 		[self getLineStart:&bol end:NULL contentsEnd:NULL forLocation:start_location];
@@ -2284,7 +2284,7 @@ replaceCharactersInRange:(NSRange)aRange
 		l1 = sel.location;
 		l2 = NSMaxRange(sel);
 	} else {
-		l1 = start_location, l2 = end_location;
+		l1 = start_location; l2 = end_location;
 		if (l2 < l1) {
 			/* swap if end < start */
 			l2 = l1;
@@ -2880,7 +2880,7 @@ replaceCharactersInRange:(NSRange)aRange
 	[item setTag:1001];
 	[item setEnabled:NO];
 	if (curLang == nil)
-		[item setState:NSOnState];
+		[item setState:NSControlStateValueOn];
 	[submenu addItem:[NSMenuItem separatorItem]];
 
 	NSArray *sortedLanguages = [[ViBundleStore defaultStore] sortedLanguages];
@@ -2890,13 +2890,13 @@ replaceCharactersInRange:(NSRange)aRange
 				   keyEquivalent:@""];
 		[item setRepresentedObject:lang];
 		if (curLang == lang)
-			[item setState:NSOnState];
+			[item setState:NSControlStateValueOn];
 	}
 
 	if ([sortedLanguages count] > 0)
 		[submenu addItem:[NSMenuItem separatorItem]];
 	[submenu addItemWithTitle:@"Get more bundles..."
-			   action:@selector(getMoreBundles:)
+			   action:NSSelectorFromString(@"getMoreBundles:")
 		    keyEquivalent:@""];
 
 	[menu insertItem:[NSMenuItem separatorItem] atIndex:n];
@@ -2959,7 +2959,7 @@ replaceCharactersInRange:(NSRange)aRange
 	point.x += inset.width;
 	point.y += inset.height;
 
-	NSEvent *ev = [NSEvent mouseEventWithType:NSRightMouseDown
+	NSEvent *ev = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown
 			  location:[self convertPoint:point toView:nil]
 		     modifierFlags:0
 			 timestamp:[[NSDate date] timeIntervalSinceNow]

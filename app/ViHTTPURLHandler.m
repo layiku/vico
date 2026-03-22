@@ -40,9 +40,12 @@
 		_dataCallback = [aDataCallback copy];
 		_completionCallback = [aCompletionCallback copy];
 		_request = [[NSURLRequest alloc] initWithURL:aURL];
-		_conn = [[NSURLConnection alloc] initWithRequest:_request
-							delegate:self];
-		DEBUG(@"conn = %@", _conn);
+		_session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]
+		                                         delegate:self
+		                                    delegateQueue:[NSOperationQueue mainQueue]];
+		_task = [_session dataTaskWithRequest:_request];
+		[_task resume];
+		DEBUG(@"task = %@", _task);
 	}
 	DEBUG_INIT();
 	return self;
@@ -55,7 +58,7 @@
 
 - (void)finishWithError:(NSError *)error
 {
-	DEBUG(@"finished on conn %@, callback %p, error %@", _conn, _completionCallback, error);
+	DEBUG(@"finished on task %@, callback %p, error %@", _task, _completionCallback, error);
 
 	if (_completionCallback) {
 		NSDictionary *attributes = nil;
@@ -75,23 +78,9 @@
 
 	_request = nil;
 
-	_conn = nil;
+	_task = nil;
 
 	_finished = YES;
-}
-
-- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response
-{
-#ifndef NO_DEBUG
-	DEBUG(@"received response %@", response);
-	if ([response isKindOfClass:[NSHTTPURLResponse class]])
-		DEBUG(@"http headers: %@", [(NSHTTPURLResponse *)response allHeaderFields]);
-#endif
-	_expectedContentLength = [response expectedContentLength];
-#ifndef NO_DEBUG
-	if (_expectedContentLength != NSURLResponseUnknownLength && _expectedContentLength > 0)
-		DEBUG(@"expecting %lld bytes", _expectedContentLength);
-#endif
 }
 
 - (CGFloat)progress
@@ -101,34 +90,15 @@
 	return -1.0;
 }
 
-- (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
-{
-	_receivedContentLength += [data length];
-	DEBUG(@"received %lu bytes: %.1f%%", [data length], [self progress] * 100);
-	[_connData appendData:data];
-	if (_dataCallback)
-		_dataCallback(data);
-}
-
-- (void)connectionDidFinishLoading:(NSURLConnection *)connection
-{
-	[self finishWithError:nil];
-}
-
-- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
-{
-	DEBUG(@"failed with error %@", error);
-	[self finishWithError:error];
-}
 
 - (void)cancel
 {
-	[_conn cancel];
+	[_task cancel];
 
 	/* Prevent error display. */
 	[self finishWithError:[NSError errorWithDomain:NSCocoaErrorDomain
-                                                  code:NSUserCancelledError
-                                              userInfo:nil]];
+	                                          code:NSUserCancelledError
+	                                      userInfo:nil]];
 }
 
 - (void)wait
@@ -138,6 +108,37 @@
 		[[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate distantFuture]];
 	}
 	DEBUG(@"request %@ is finished", self);
+}
+
+#pragma mark - NSURLSessionDataDelegate
+
+- (void)URLSession:(NSURLSession *)session
+          dataTask:(NSURLSessionDataTask *)dataTask
+didReceiveResponse:(NSURLResponse *)response
+ completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler
+{
+	_expectedContentLength = [response expectedContentLength];
+	completionHandler(NSURLSessionResponseAllow);
+}
+
+- (void)URLSession:(NSURLSession *)session
+          dataTask:(NSURLSessionDataTask *)dataTask
+    didReceiveData:(NSData *)data
+{
+	_receivedContentLength += [data length];
+	DEBUG(@"received %lu bytes: %.1f%%", [data length], [self progress] * 100);
+	[_connData appendData:data];
+	if (_dataCallback)
+		_dataCallback(data);
+}
+
+- (void)URLSession:(NSURLSession *)session
+              task:(NSURLSessionTask *)task
+didCompleteWithError:(NSError *)error
+{
+	if (error && error.code == NSURLErrorCancelled)
+		return;
+	[self finishWithError:error];
 }
 
 @end

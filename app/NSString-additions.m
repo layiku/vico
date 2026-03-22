@@ -103,10 +103,10 @@
 	NSString *encodedKey;
 	if (modifiers) {
 		encodedKey = [NSString stringWithFormat:@"<%s%s%s%s%@>",
-		    (modifiers & NSShiftKeyMask) ? "shift-" : "",
-		    (modifiers & NSControlKeyMask) ? "ctrl-" : "",
-		    (modifiers & NSAlternateKeyMask) ? "alt-" : "",
-		    (modifiers & NSCommandKeyMask) ? "cmd-" : "",
+		    (modifiers & NSEventModifierFlagShift) ? "shift-" : "",
+		    (modifiers & NSEventModifierFlagControl) ? "ctrl-" : "",
+		    (modifiers & NSEventModifierFlagOption) ? "alt-" : "",
+		    (modifiers & NSEventModifierFlagCommand) ? "cmd-" : "",
 		    special ?: [NSString stringWithFormat:@"%C", key]];
 	} else if (special)
 		encodedKey = [NSString stringWithFormat:@"<%@>", special];
@@ -163,17 +163,17 @@
 
 	if (key < 0x20 && key > 0 && key != 0x1B && key != 0x0D && key != 0x09) {
 		key = key + 'A' - 1;
-		modifiers |= NSControlKeyMask;
+		modifiers |= NSEventModifierFlagControl;
 	} else if (modifiers && [[NSString stringWithFormat:@"%C", key] isUppercase])
-		modifiers |= NSShiftKeyMask;
+		modifiers |= NSEventModifierFlagShift;
 
 	NSString *encodedKey;
 	if (modifiers) {
 		encodedKey = [NSString stringWithFormat:@"%@%@%@%@%@",
-		    (modifiers & NSCommandKeyMask) ? [NSString stringWithFormat:@"%C", (unichar)0x2318] : @"",
-		    (modifiers & NSAlternateKeyMask) ? [NSString stringWithFormat:@"%C", (unichar)0x2325] : @"",
-		    (modifiers & NSControlKeyMask) ? [NSString stringWithFormat:@"%C", (unichar)0x2303] : @"",
-		    (modifiers & NSShiftKeyMask) ? [NSString stringWithFormat:@"%C", (unichar)0x21E7] : @"",
+		    (modifiers & NSEventModifierFlagCommand) ? [NSString stringWithFormat:@"%C", (unichar)0x2318] : @"",
+		    (modifiers & NSEventModifierFlagOption) ? [NSString stringWithFormat:@"%C", (unichar)0x2325] : @"",
+		    (modifiers & NSEventModifierFlagControl) ? [NSString stringWithFormat:@"%C", (unichar)0x2303] : @"",
+		    (modifiers & NSEventModifierFlagShift) ? [NSString stringWithFormat:@"%C", (unichar)0x21E7] : @"",
 		    special ?: [[NSString stringWithFormat:@"%C", key] uppercaseString]];
 	} else if (special)
 		encodedKey = special;

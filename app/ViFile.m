@@ -24,6 +24,7 @@
  */
 
 #import "ViFile.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include "logging.h"
 
 @implementation ViFile
@@ -157,23 +158,27 @@ symbolicAttributes:(NSDictionary *)sDictionary
 		if ([_url isFileURL])
 			_icon = [[NSWorkspace sharedWorkspace] iconForFile:[[self targetURL] path]];
 		else if (_isDirectory)
-			_icon = [[NSWorkspace sharedWorkspace] iconForFileType:NSFileTypeForHFSTypeCode('fldr')];
-		else
-			_icon = [[NSWorkspace sharedWorkspace] iconForFileType:[[self targetURL] pathExtension]];
+			_icon = [[NSWorkspace sharedWorkspace] iconForContentType:UTTypeFolder];
+		else {
+			UTType *t = [UTType typeWithFilenameExtension:[[self targetURL] pathExtension]];
+			_icon = [[NSWorkspace sharedWorkspace] iconForContentType:t ?: UTTypePlainText];
+		}
 		[_icon setSize:NSMakeSize(16, 16)];
 
 		if (_isLink) {
-			_icon = [_icon copy];
+			NSImage *baseIcon = _icon;
 			NSImage *aliasBadge = [NSImage imageNamed:@"AliasBadgeIcon"];
-			[_icon lockFocus];
-			NSSize sz = [_icon size];
-			[aliasBadge drawInRect:NSMakeRect(0, 0, sz.width, sz.height)
-				      fromRect:NSZeroRect
-				     operation:NSCompositeSourceOver
-				      fraction:1.0];
-			[_icon unlockFocus];
-		} else
-			;
+			NSSize sz = [baseIcon size];
+			_icon = [NSImage imageWithSize:sz flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+				[baseIcon drawInRect:dstRect fromRect:NSZeroRect
+				           operation:NSCompositingOperationSourceOver fraction:1.0
+				      respectFlipped:NO hints:nil];
+				[aliasBadge drawInRect:dstRect fromRect:NSZeroRect
+				             operation:NSCompositingOperationSourceOver fraction:1.0
+				        respectFlipped:NO hints:nil];
+				return YES;
+			}];
+		}
 
 		_iconIsDirty = NO;
 	}

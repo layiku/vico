@@ -25,9 +25,10 @@
 
 #import "ViURLManager.h"
 
-@interface ViHTTPDeferred : NSObject <ViDeferred>
+@interface ViHTTPDeferred : NSObject <ViDeferred, NSURLSessionDataDelegate>
 {
-	NSURLConnection		*_conn;
+	NSURLSession		*_session;
+	NSURLSessionDataTask	*_task;
 	NSURLRequest		*_request;
 	NSMutableData		*_connData;
 	unsigned long long	 _receivedContentLength;

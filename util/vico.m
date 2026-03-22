@@ -31,35 +31,29 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#import "ViAppController.h"
-#import "SBJson.h"
+#import "ViXPCProtocols.h"
 
 BOOL keepRunning = YES;
 int returnCode = 0;
-id returnObject = nil;
+NSString *returnJSONString = nil;
 
-@interface ShellThing : NSObject <ViShellThingProtocol>
-{
-}
+@interface ShellThing : NSObject <ViShellThingXPCProtocol>
 @end
 
 @implementation ShellThing
 
-- (void)exit
+- (void)exitWithCode:(int)code
 {
-	keepRunning = NO;
-}
-
-- (void)exitWithObject:(id)obj
-{
-	keepRunning = NO;
-	returnObject = obj;
-}
-
-- (void)exitWithError:(int)code
-{
-	keepRunning = NO;
 	returnCode = code;
+	keepRunning = NO;
+	CFRunLoopStop(CFRunLoopGetMain());
+}
+
+- (void)exitWithJSONString:(NSString *)json
+{
+	returnJSONString = json;
+	keepRunning = NO;
+	CFRunLoopStop(CFRunLoopGetMain());
 }
 
 - (void)log:(NSString *)message
@@ -86,14 +80,54 @@ usage(void)
 }
 
 id jsonValueFor(NSString *json) {
-	SBJsonParser *parser = [[SBJsonParser alloc] init];
-	return [parser objectWithString:json];
+	NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+	if (data == nil)
+		return nil;
+	return [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+}
+
+static BOOL
+connectToVico(NSXPCConnection **outConn, id<ViShellCommandXPCProtocol> *outProxy, BOOL needBackChannel)
+{
+	NSXPCConnection *conn = [[NSXPCConnection alloc] initWithMachServiceName:@"se.bzero.vico.ipc"
+	                                                                 options:0];
+	conn.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(ViShellCommandXPCProtocol)];
+
+	if (needBackChannel) {
+		conn.exportedInterface = [NSXPCInterface interfaceWithProtocol:@protocol(ViShellThingXPCProtocol)];
+		conn.exportedObject = [[ShellThing alloc] init];
+	}
+
+	[conn resume];
+
+	/* Try a ping to verify the connection is live. */
+	__block BOOL connected = NO;
+	dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+
+	id<ViShellCommandXPCProtocol> proxy = [conn remoteObjectProxyWithErrorHandler:^(NSError *error) {
+		dispatch_semaphore_signal(sem);
+	}];
+
+	[proxy pingWithReply:^{
+		connected = YES;
+		dispatch_semaphore_signal(sem);
+	}];
+
+	dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+
+	if (connected) {
+		*outConn = conn;
+		*outProxy = proxy;
+		return YES;
+	}
+
+	[conn invalidate];
+	return NO;
 }
 
 int
 main(int argc, char **argv)
 {
-	NSProxy<ViShellCommandProtocol>		*proxy;
 	NSString				*script = nil;
 	NSString				*script_path = nil;
 	NSString				*json;
@@ -108,7 +142,7 @@ main(int argc, char **argv)
 	BOOL					 params_from_stdin = NO;
 	BOOL					 wait_for_close = NO;
 	BOOL					 new_window = NO;
-	BOOL wasRunning = YES;
+	BOOL					 wasRunning = YES;
 
 	@autoreleasepool {
 		bindings = [NSMutableDictionary dictionary];
@@ -168,41 +202,6 @@ main(int argc, char **argv)
 		if (wait_for_close && (eval_script || eval_file))
 			errx(1, "can't both evaluate script and wait for document");
 
-		NSString *connName = [NSString stringWithFormat:@"vico.%u", (unsigned int)getuid()];
-		proxy = (NSProxy<ViShellCommandProtocol> *)[NSConnection rootProxyForConnectionWithRegisteredName:connName
-														 host:nil];
-		if (proxy == nil) {
-			wasRunning = NO;
-
-			/* failed to connect, try to start it */
-			CFStringRef bundle_id = CFSTR("se.bzero.Vico");
-			FSRef appRef;
-			LSApplicationParameters params;
-			bzero(&params, sizeof(params));
-			params.flags = kLSLaunchNoParams;
-			if (LSFindApplicationForInfo(kLSUnknownCreator, bundle_id, NULL, &appRef, NULL) != 0)
-				errx(1, "failed to find Vico");
-
-			params.application = &appRef;
-
-			if (argc > 0) {
-				const void *values[] = { CFSTR("-skip-untitled") };
-				params.argv = CFArrayCreate(NULL, values, 1, &kCFTypeArrayCallBacks);
-			}
-
-			if (LSOpenApplication(&params, NULL) != 0)
-				errx(1, "failed to start Vico");
-
-			for (i = 0; i < 50 && proxy == nil; i++) {
-				usleep(200000); // sleep for 0.2 seconds
-				proxy = (NSProxy<ViShellCommandProtocol> *)[NSConnection rootProxyForConnectionWithRegisteredName:connName
-																 host:nil];
-			}
-
-			if (proxy == nil)
-				errx(1, "failed to connect");
-		}
-
 		if (eval_file) {
 			if (strcmp(eval_file, "-") == 0) {
 				handle = [NSFileHandle fileHandleWithStandardInput];
@@ -235,100 +234,133 @@ main(int argc, char **argv)
 				errx(2, "stdin: read failure");
 			if ((json = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]) == nil)
 				errx(1, "parameters not proper UTF8");
-			
-			SBJsonParser *parser = [[SBJsonParser alloc] init];
-			if ((params = [parser objectWithString:json]) == nil)
+
+			if ((params = jsonValueFor(json)) == nil)
 				errx(1, "parameters not proper JSON");
 			if (![params isKindOfClass:[NSDictionary class]])
 				errx(1, "parameters not a JSON object");
 			[bindings addEntriesFromDictionary:params];
 		}
 
-		NSString *backChannelName = nil;
-		if (runLoop || wait_for_close) {
-			NSConnection *backConn = nil;
-			backConn = [NSConnection new];
-			[backConn setRootObject:[[ShellThing alloc] init]];
-			backChannelName = [NSString stringWithFormat:@"vicotool.%u", getpid()];
-			[backConn registerName:backChannelName];
-		}
+		/* Connect to Vico app via XPC */
+		BOOL needBackChannel = (runLoop || wait_for_close);
+		NSXPCConnection *conn = nil;
+		id<ViShellCommandXPCProtocol> proxy = nil;
 
-		@try {
+		if (!connectToVico(&conn, &proxy, needBackChannel)) {
+			wasRunning = NO;
 
-			if (script) {
-				NSString *errStr = nil;
-				NSString *result = nil;
-				result = [proxy eval:script
-				  additionalBindings:bindings
-					 errorString:&errStr
-					 backChannel:backChannelName];
+			/* Failed to connect, try to start Vico */
+			NSMutableArray *openArgs = [NSMutableArray arrayWithObjects:@"-b", @"se.bzero.Vico", nil];
+			if (argc > 0)
+				[openArgs addObjectsFromArray:@[@"--args", @"-skip-untitled"]];
 
-				if (errStr) {
-					fprintf(stderr, "%s\n", [errStr UTF8String]);
-					return 3;
-				}
-				if (!runLoop && [result length] > 0)
-					printf("%s\n", [result UTF8String]);
-			}
+			NSTask *openTask = [[NSTask alloc] init];
+			[openTask setExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/open"]];
+			[openTask setArguments:openArgs];
+			NSError *taskError = nil;
+			if (![openTask launchAndReturnError:&taskError])
+				errx(1, "failed to start Vico");
 
-			if (argc > 0 && new_window)
-				[proxy newProject:nil];
-
-			NSString *basePath = [[NSFileManager defaultManager] currentDirectoryPath];
-			for (i = 0; i < argc; i++) {
-				NSString *path = [NSString stringWithUTF8String:argv[i]];
-
-				if (i == 0 && [path isEqualToString:@"-"]) {
-					handle = [NSFileHandle fileHandleWithStandardInput];
-					NSData *data = [handle readDataToEndOfFile];
-					[proxy newDocumentWithData:data andWait:wait_for_close backChannel:backChannelName];
+			/* Poll until Vico responds */
+			for (i = 0; i < 50; i++) {
+				usleep(200000); // sleep for 0.2 seconds
+				if (connectToVico(&conn, &proxy, needBackChannel))
 					break;
-				}
-					
-				if ([path rangeOfString:@"://"].location == NSNotFound) {
-					path = [path stringByExpandingTildeInPath];
-					if (![path isAbsolutePath])
-						path = [basePath stringByAppendingPathComponent:path];
-					path = [[[NSURL fileURLWithPath:path] URLByResolvingSymlinksInPath] absoluteString];
-				}
-				error = [proxy openURL:path andWait:wait_for_close backChannel:backChannelName];
-				if (error)
-					errx(2, "%s: %s", argv[i], [[error localizedDescription] UTF8String]);
 			}
 
-			if (! wasRunning) {
-				[proxy setStartupBasePath:basePath];
-			}
-
-			if (argc == 0 && script == nil) {
-				/* just make it first responder */
-				[proxy eval:@"((NSApplication sharedApplication) activateIgnoringOtherApps:YES)"
-					  error:nil];
-			}
-
-			if ((runLoop && script) || wait_for_close) {
-				NSRunLoop *loop = [NSRunLoop currentRunLoop];
-				while (keepRunning && [loop runMode:NSDefaultRunLoopMode
-							 beforeDate:[NSDate distantFuture]])
-					;
-
-				if (returnObject != nil) {
-					SBJsonWriter *writer = [[SBJsonWriter alloc] init];
-					NSString *returnJSON = [writer stringWithObject:returnObject];
-					printf("%s\n", [returnJSON UTF8String]);
-				}
-			}
+			if (conn == nil)
+				errx(1, "failed to connect");
 		}
-		@catch (NSException *exception) {
-			NSString *msg = [NSString stringWithFormat:@"%@: %@",
-				[exception name], [exception reason]];
-			/* We don't print the callStackSymbols, as
-			 * they are not useful (they will just point
-			 * to [NSConnection sendInvocation:]).
-			 */
-			fprintf(stderr, "%s\n", [msg UTF8String]);
-			return 5;
+
+		if (script) {
+			dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+			__block NSString *errStr = nil;
+			__block NSString *result = nil;
+			[proxy evalScript:script
+			additionalBindings:bindings
+				 withReply:^(NSString *r, NSString *e) {
+				result = r;
+				errStr = e;
+				dispatch_semaphore_signal(sem);
+			}];
+			dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+
+			if (errStr) {
+				fprintf(stderr, "%s\n", [errStr UTF8String]);
+				return 3;
+			}
+			if (!runLoop && [result length] > 0)
+				printf("%s\n", [result UTF8String]);
 		}
+
+		if (argc > 0 && new_window)
+			[proxy newProject];
+
+		NSString *basePath = [[NSFileManager defaultManager] currentDirectoryPath];
+		for (i = 0; i < argc; i++) {
+			NSString *path = [NSString stringWithUTF8String:argv[i]];
+
+			if (i == 0 && [path isEqualToString:@"-"]) {
+				handle = [NSFileHandle fileHandleWithStandardInput];
+				NSData *data = [handle readDataToEndOfFile];
+				dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+				__block NSString *errDesc = nil;
+				[proxy newDocumentWithData:data andWait:wait_for_close withReply:^(NSString *e) {
+					errDesc = e;
+					dispatch_semaphore_signal(sem);
+				}];
+				dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+				if (errDesc)
+					errx(2, "%s", [errDesc UTF8String]);
+				break;
+			}
+
+			if ([path rangeOfString:@"://"].location == NSNotFound) {
+				path = [path stringByExpandingTildeInPath];
+				if (![path isAbsolutePath])
+					path = [basePath stringByAppendingPathComponent:path];
+				path = [[[NSURL fileURLWithPath:path] URLByResolvingSymlinksInPath] absoluteString];
+			}
+
+			dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+			__block NSString *errDesc = nil;
+			[proxy openURL:path andWait:wait_for_close withReply:^(NSString *e) {
+				errDesc = e;
+				dispatch_semaphore_signal(sem);
+			}];
+			dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+
+			if (errDesc)
+				errx(2, "%s: %s", argv[i], [errDesc UTF8String]);
+		}
+
+		if (!wasRunning) {
+			[proxy setStartupBasePath:basePath];
+		}
+
+		if (argc == 0 && script == nil) {
+			/* Just activate Vico */
+			dispatch_semaphore_t sem = dispatch_semaphore_create(0);
+			[proxy evalScript:@"((NSApplication sharedApplication) activateIgnoringOtherApps:YES)"
+			additionalBindings:nil
+				 withReply:^(NSString *r, NSString *e) {
+				dispatch_semaphore_signal(sem);
+			}];
+			dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+		}
+
+		if ((runLoop && script) || wait_for_close) {
+			NSRunLoop *loop = [NSRunLoop currentRunLoop];
+			while (keepRunning && [loop runMode:NSDefaultRunLoopMode
+						 beforeDate:[NSDate distantFuture]])
+				;
+
+			if (returnJSONString != nil)
+				printf("%s\n", [returnJSONString UTF8String]);
+		}
+
+		[conn invalidate];
 	}
 
 	return returnCode;

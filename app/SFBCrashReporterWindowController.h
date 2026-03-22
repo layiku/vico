@@ -8,7 +8,7 @@
 // ========================================
 // The main class for SFBCrashReporter
 // ========================================
-@interface SFBCrashReporterWindowController : NSWindowController
+@interface SFBCrashReporterWindowController : NSWindowController <NSWindowDelegate, NSTextViewDelegate>
 {
 	IBOutlet NSTextView *_commentsTextView;
 	IBOutlet NSButton *_reportButton;
@@ -21,8 +21,6 @@
 	NSString *_crashLogPath;
 	NSURL *_submissionURL;
 	
-	NSURLConnection *_urlConnection;
-	NSMutableData *_responseData;
 }
 
 // ========================================

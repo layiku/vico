@@ -120,14 +120,14 @@
 		else
 			imageFrame.origin.y += ceil((cellFrame.size.height - imageFrame.size.height) / 2);
 
-		[_image drawAtPoint:imageFrame.origin fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
+		[_image drawAtPoint:imageFrame.origin fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
 	}
 
 	if (_statusImage != nil) {
 		imageSize = [_statusImage size];
 		NSPoint p = NSMakePoint(NSMaxX(cellFrame) - imageSize.width, cellFrame.origin.y);
 		p.y += ceil((cellFrame.size.height + imageSize.height) / 2);
-		[_statusImage drawAtPoint:p fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
+		[_statusImage drawAtPoint:p fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
 	}
 
 	if (_modified) {
@@ -137,7 +137,7 @@
 		NSSize modImageSize = [_modImage size];
 		modPoint.y += ceil((cellFrame.size.height + modImageSize.height) / 2);
 		modPoint.x = imageFrame.origin.x - modImageSize.width;
-		[_modImage drawAtPoint:modPoint fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
+		[_modImage drawAtPoint:modPoint fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
 	}
 
 	NSSize sz = [[self attributedStringValue] size];

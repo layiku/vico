@@ -31,9 +31,9 @@
         _closeButtonOver = NO;
         _closeButtonPressed = NO;
         _indicator = [[PSMProgressIndicator alloc] initWithFrame:NSMakeRect(0.0,0.0,kPSMTabBarIndicatorWidth,kPSMTabBarIndicatorWidth)];
-        [_indicator setStyle:NSProgressIndicatorSpinningStyle];
+        [_indicator setStyle:NSProgressIndicatorStyleSpinning];
         [_indicator setAutoresizingMask:NSViewMinYMargin];
-	[_indicator setControlSize:NSSmallControlSize];
+	[_indicator setControlSize:NSControlSizeSmall];
         _hasCloseButton = YES;
         _isCloseButtonSuppressed = NO;
         _count = 0;
@@ -289,7 +289,7 @@
 {
     if(_isPlaceholder){
         [[NSColor colorWithCalibratedWhite:0.0 alpha:0.2] set];
-        NSRectFillUsingOperation(cellFrame, NSCompositeSourceAtop);
+        NSRectFillUsingOperation(cellFrame, NSCompositingOperationSourceAtop);
         return;
     }
 
@@ -308,7 +308,7 @@
     if([theEvent trackingNumber] == _cellTrackingTag){
         [self setHighlighted:YES];
     }
-    [_myControlView setNeedsDisplay];
+    _myControlView.needsDisplay = YES;
 }
 
 - (void)mouseExited:(NSEvent *)theEvent
@@ -320,7 +320,7 @@
     if([theEvent trackingNumber] == _cellTrackingTag){
         [self setHighlighted:NO];
     }
-    [_myControlView setNeedsDisplay];
+    _myControlView.needsDisplay = YES;
 }
 
 #pragma mark -
@@ -328,26 +328,27 @@
 
 - (NSImage*)dragImageForRect:(NSRect)cellFrame
 {
-    if(([self state] == NSOnState) && ([[_myControlView styleName] isEqualToString:@"Metal"]))
+    if(([self state] == NSControlStateValueOn) && ([[_myControlView styleName] isEqualToString:@"Metal"]))
         cellFrame.size.width += 1.0;
-    [_myControlView lockFocus];
-    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithFocusedViewRect:cellFrame];
-    [_myControlView unlockFocus];
-    NSImage *image = [[NSImage alloc] initWithSize:[rep size]];
+    NSBitmapImageRep *rep = [_myControlView bitmapImageRepForCachingDisplayInRect:cellFrame];
+    [_myControlView cacheDisplayInRect:cellFrame toBitmapImageRep:rep];
+    NSImage *image = [[NSImage alloc] initWithSize:rep.size];
     [image addRepresentation:rep];
-    NSImage *returnImage = [[NSImage alloc] initWithSize:[rep size]];
-    [returnImage lockFocus];
-	[image drawAtPoint:NSMakePoint(0.0, 0.0) fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:0.7];
-    [returnImage unlockFocus];
-    if(![[self indicator] isHidden]){
-        NSImage *indicatorImage = [[NSImage alloc] initByReferencingFile:[[PSMTabBarControl bundle] pathForImageResource:@"pi"]];
-        [returnImage lockFocus];
-        NSPoint indicatorPoint = NSMakePoint([self frame].size.width - MARGIN_X - kPSMTabBarIndicatorWidth, MARGIN_Y);
-        if(([self state] == NSOnState) && ([[_myControlView styleName] isEqualToString:@"Metal"]))
-            indicatorPoint.y += 1.0;
-        [indicatorImage drawAtPoint:indicatorPoint fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:0.7];
-        [returnImage unlockFocus];
-    }
+
+    BOOL showIndicator = ![[self indicator] isHidden];
+    NSImage *indicatorImage = showIndicator
+        ? [[NSImage alloc] initByReferencingFile:[[PSMTabBarControl bundle] pathForImageResource:@"pi"]]
+        : nil;
+    NSPoint indicatorPoint = NSMakePoint([self frame].size.width - MARGIN_X - kPSMTabBarIndicatorWidth, MARGIN_Y);
+    if(([self state] == NSControlStateValueOn) && ([[_myControlView styleName] isEqualToString:@"Metal"]))
+        indicatorPoint.y += 1.0;
+
+    NSImage *returnImage = [NSImage imageWithSize:rep.size flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+        [image drawAtPoint:NSMakePoint(0.0, 0.0) fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:0.7];
+        if (indicatorImage)
+            [indicatorImage drawAtPoint:indicatorPoint fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:0.7];
+        return YES;
+    }];
     return returnImage;
 }
 

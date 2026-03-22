@@ -2343,13 +2343,13 @@
 				NSString *pattern = [tag objectAtIndex:1];
 				NSRange r = NSMakeRange(0, [pattern length]);
 				if ([pattern hasPrefix:@"^"])
-					r.location++, r.length--;
+                    r.location++; r.length--;
 				if ([pattern hasSuffix:@"$"])
 					r.length--;
 				NSString *escapedPattern = [ViRegexp escape:pattern inRange:r];
 				ViDocumentView *docView = (ViDocumentView *)[windowController currentView];
 				[[docView textView] findPattern:escapedPattern options:0];
-				final_location = NSNotFound;
+				self->final_location = NSNotFound;
 			} else {
 				[self jump_symbol:command];
 			}

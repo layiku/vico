@@ -55,22 +55,23 @@
 
 
 	NSSize sz = [newlineChar sizeWithAttributes:_invisiblesAttributes];
-	_newlineImage = [[NSImage alloc] initWithSize:sz];
-	[_newlineImage lockFocusFlipped:NO];
-	[newlineChar drawAtPoint:NSMakePoint(0,0) withAttributes:_invisiblesAttributes];
-	[_newlineImage unlockFocus];
+	NSDictionary *invisiblesAttrsCopy = [_invisiblesAttributes copy];
+	_newlineImage = [NSImage imageWithSize:sz flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+		[newlineChar drawAtPoint:NSMakePoint(0,0) withAttributes:invisiblesAttrsCopy];
+		return YES;
+	}];
 
 	sz = [tabChar sizeWithAttributes:_invisiblesAttributes];
-	_tabImage = [[NSImage alloc] initWithSize:sz];
-	[_tabImage lockFocusFlipped:NO];
-	[tabChar drawAtPoint:NSMakePoint(0,0) withAttributes:_invisiblesAttributes];
-	[_tabImage unlockFocus];
+	_tabImage = [NSImage imageWithSize:sz flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+		[tabChar drawAtPoint:NSMakePoint(0,0) withAttributes:invisiblesAttrsCopy];
+		return YES;
+	}];
 
 	sz = [spaceChar sizeWithAttributes:_invisiblesAttributes];
-	_spaceImage = [[NSImage alloc] initWithSize:sz];
-	[_spaceImage lockFocusFlipped:NO];
-	[spaceChar drawAtPoint:NSMakePoint(0,0) withAttributes:_invisiblesAttributes];
-	[_spaceImage unlockFocus];
+	_spaceImage = [NSImage imageWithSize:sz flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+		[spaceChar drawAtPoint:NSMakePoint(0,0) withAttributes:invisiblesAttrsCopy];
+		return YES;
+	}];
 
 }
 
@@ -114,7 +115,7 @@ DEBUG_FINALIZE();
 				r.size = [visibleImage size];
 				[visibleImage drawInRect:r
 						fromRect:NSZeroRect
-					       operation:NSCompositeSourceOver
+					       operation:NSCompositingOperationSourceOver
 						fraction:1.0
 					  respectFlipped:YES
 						   hints:nil];

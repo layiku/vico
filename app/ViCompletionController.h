@@ -107,7 +107,6 @@
 - (BOOL)accept:(ViCommand *)command;
 - (BOOL)accept_or_complete_partially:(ViCommand *)command;
 - (BOOL)accept_if_not_autocompleting:(ViCommand *)command;
-- (BOOL)accept_or_complete_partially:(ViCommand *)command;
 - (void)updateCompletions;
 - (void)reset;
 

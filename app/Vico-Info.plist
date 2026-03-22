@@ -351,16 +351,12 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>10.8.0</string>
-	<key>NSMainNibFile</key>
-	<string>MainMenu</string>
+	<string>13.0</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>SFBCrashReporterCrashSubmissionURL</key>
 	<string>http://crash.vicoapp.com/handle_crash_report.php</string>
 	<key>SUFeedURL</key>
 	<string>http://www.vicoapp.com/appcast.xml</string>
-	<key>SUPublicDSAKeyFile</key>
-	<string>sparkle_pub.pem</string>
 </dict>
 </plist>

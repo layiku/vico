@@ -119,7 +119,7 @@
 			CGFloat alpha = 0.1 * (fold.depth + 1);
 			NSColor *foldColor = [NSColor colorWithCalibratedWhite:0.42 alpha:alpha];
 			[foldColor set];
-			NSRectFillUsingOperation(r, NSCompositeSourceOver);
+			NSRectFillUsingOperation(r, NSCompositingOperationSourceOver);
 		}
 
 		/* Protect against an improbable (but possible due to

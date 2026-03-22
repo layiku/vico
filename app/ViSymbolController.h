@@ -29,7 +29,7 @@
 @class ViWindowController;
 @class ViBgView;
 
-@interface ViSymbolController : NSObject <NSOutlineViewDataSource, ViKeyManagerTarget>
+@interface ViSymbolController : NSObject <NSOutlineViewDataSource, ViKeyManagerTarget, NSSearchFieldDelegate>
 {
 	IBOutlet NSWindow		*window;
 	IBOutlet ViWindowController	*windowController;
@@ -67,8 +67,6 @@
 - (BOOL)symbolListIsOpen;
 - (void)symbolsUpdate:(NSTimer *)aTimer;
 
-- (void)closeSymbolListAndFocusEditor:(BOOL)focusEditor;
-- (BOOL)symbolListIsOpen;
 - (void)showAltFilterField;
 - (void)hideAltFilterField;
 - (BOOL)isSeparatorItem:(id)item;

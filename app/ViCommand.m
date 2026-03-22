@@ -24,6 +24,7 @@
  */
 
 #import "ViCommand.h"
+#import "ViTextView.h"
 #include "logging.h"
 
 @implementation ViCommand
@@ -72,7 +73,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
 	
-        return (BOOL)[target performSelector:_mapping.action withObject:self];
+        return (BOOL)(intptr_t)[target performSelector:_mapping.action withObject:self];
 	
 #pragma clang diagnostic pop
 }
@@ -109,7 +110,7 @@
 
 - (BOOL)isDot
 {
-	return _mapping.action == @selector(dot:);
+	return _mapping.action == NSSelectorFromString(@"dot:");
 }
 
 - (id)copyWithZone:(NSZone *)zone

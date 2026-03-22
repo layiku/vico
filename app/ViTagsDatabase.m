@@ -136,7 +136,7 @@
 						onCompletion:^(NSURL *normalizedURL, NSDictionary *attributes, NSError *error) {
 		if (error)
 			aBlock(error);
-		if ([_modificationDate isEqualToDate:[attributes fileModificationDate]]) {
+        if ([self->_modificationDate isEqualToDate:[attributes fileModificationDate]]) {
 			DEBUG(@"tags file %@ unmodified: %@", normalizedURL, _modificationDate);
 			aBlock(nil);
 		} else
@@ -150,7 +150,7 @@
 		if (error)
 			aBlock(nil, error);
 		else
-			aBlock([_tags objectForKey:symbol], nil);
+            aBlock([self->_tags objectForKey:symbol], nil);
 	};
 
 	DEBUG(@"looking up symbol %@", symbol);

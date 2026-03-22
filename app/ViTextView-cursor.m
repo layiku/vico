@@ -302,7 +302,7 @@
 
 + (NSCursor *)defaultIBeamCursor
 {
-	return [self defaultIBeamCursorImplementation]([NSCursor class], @selector(IBeamCursor));
+	return ((NSCursor *(*)(id, SEL))[self defaultIBeamCursorImplementation])([NSCursor class], @selector(IBeamCursor));
 }
 
 + (NSCursor *)whiteIBeamCursor
@@ -310,12 +310,16 @@
 	static NSCursor *__invertedIBeamCursor = nil;
 	if (!__invertedIBeamCursor) {
 		NSCursor *iBeam = [NSCursor defaultIBeamCursor];
-		NSImage *iBeamImg = [[iBeam image] copy];
-		NSRect imgRect = {NSZeroPoint, [iBeamImg size]};
-		[iBeamImg lockFocus];
-		[[NSColor whiteColor] set];
-		NSRectFillUsingOperation(imgRect, NSCompositeSourceAtop);
-		[iBeamImg unlockFocus];
+		NSImage *iBeamSrc = [iBeam image];
+		NSSize imgSize = [iBeamSrc size];
+		NSImage *iBeamImg = [NSImage imageWithSize:imgSize flipped:NO drawingHandler:^BOOL(NSRect dstRect) {
+			[iBeamSrc drawInRect:dstRect fromRect:NSZeroRect
+			           operation:NSCompositingOperationSourceOver fraction:1.0
+			      respectFlipped:NO hints:nil];
+			[[NSColor whiteColor] set];
+			NSRectFillUsingOperation(dstRect, NSCompositingOperationSourceAtop);
+			return YES;
+		}];
 		__invertedIBeamCursor = [[NSCursor alloc] initWithImage:iBeamImg
 								hotSpot:[iBeam hotSpot]];
 	}

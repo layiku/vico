@@ -24,6 +24,7 @@
  */
 
 #import "SFTPConnection.h"
+#import "ViWaitProgressUI.h"
 #import "ViError.h"
 #import "ViRegexp.h"
 #import "ViFile.h"
@@ -268,7 +269,7 @@ typedef void (^WritefunType)(SFTPMessage *);
 	DEBUG(@"limitdate %@ reached, presenting cancellable sheet", limitDate);
 
 	/* Continue with a sheet with a cancel button. */
-	[[NSBundle mainBundle] loadNibNamed:@"WaitProgress" owner:self topLevelObjects:nil];
+	[ViWaitProgressUI createWaitProgressWindowWithOwner:self];
 	[waitLabel setStringValue:waitMessage];
 	[progressIndicator startAnimation:nil];
 	[waitWindow setTitle:[NSString stringWithFormat:@"Waiting on %@", _connection.title]];
@@ -961,7 +962,7 @@ typedef void (^WritefunType)(SFTPMessage *);
 			return;
 		}
 
-		_remoteVersion = msg.requestId;
+        self->_remoteVersion = msg.requestId;
 		DEBUG(@"Remote version: %d", _remoteVersion);
 
 		/* Check for extensions */
@@ -974,15 +975,15 @@ typedef void (^WritefunType)(SFTPMessage *);
 			BOOL known = NO;
 			if ([name isEqualToString:@"posix-rename@openssh.com"] &&
 			    [value isEqualToString:@"1"]) {
-				_exts |= SFTP_EXT_POSIX_RENAME;
+                self->_exts |= SFTP_EXT_POSIX_RENAME;
 				known = YES;
 			} else if ([name isEqualToString:@"statvfs@openssh.com"] &&
 				   [value isEqualToString:@"2"]) {
-				_exts |= SFTP_EXT_STATVFS;
+                self->_exts |= SFTP_EXT_STATVFS;
 				known = YES;
 			} else if ([name isEqualToString:@"fstatvfs@openssh.com"] &&
 				   [value isEqualToString:@"2"]) {
-				_exts |= SFTP_EXT_FSTATVFS;
+                self->_exts |= SFTP_EXT_FSTATVFS;
 				known = YES;
 			}
 
@@ -993,9 +994,9 @@ typedef void (^WritefunType)(SFTPMessage *);
 		}
 
 		/* Some filexfer v.0 servers don't support large packets. */
-		_transfer_buflen = 32768;
-		if (_remoteVersion == 0)
-			_transfer_buflen = MIN(_transfer_buflen, 20480);
+        self->_transfer_buflen = 32768;
+        if (self->_remoteVersion == 0)
+            self->_transfer_buflen = MIN(self->_transfer_buflen, 20480);
 
 		req.subRequest = [self realpath:@"." onResponse:^(NSString *filename, NSDictionary *attributes, NSError *error) {
 			req.subRequest = nil;
@@ -1103,7 +1104,7 @@ typedef void (^WritefunType)(SFTPMessage *);
 		path = [_home stringByAppendingPathComponent:[path substringFromIndex:2]];
 	else
 		return [aURL absoluteURL];
-	path = [path stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+	path = [path stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
 	return [[NSURL URLWithString:path relativeToURL:aURL] absoluteURL];
 }
 
@@ -1207,7 +1208,7 @@ typedef void (^WritefunType)(SFTPMessage *);
 		}
 
 		req = [self realpath:file.path onResponse:^(NSString *realPath, NSDictionary *dummyAttributes, NSError *error) {
-			NSURL *url = [NSURL URLWithString:[realPath stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]
+			NSURL *url = [NSURL URLWithString:[realPath stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]]
 					    relativeToURL:aURL];
 			if (error) {
 				originalCallback(nil, error);
@@ -1467,7 +1468,7 @@ typedef void (^WritefunType)(SFTPMessage *);
 					 withAttributes:[NSDictionary dictionary]
 					     onResponse:^(NSData *handle, NSError *error) {
 			__block uint64_t offset = 0;
-			__block uint32_t len = _transfer_buflen;
+            __block uint32_t len = self->_transfer_buflen;
 
 			void (^cancelfun)(SFTPRequest *);
 			cancelfun = ^(SFTPRequest *req) {
@@ -1666,7 +1667,7 @@ typedef void (^WritefunType)(SFTPMessage *);
 			}
 
 			/* Dispatch next read request. */
-			uint32_t len = _transfer_buflen;
+			uint32_t len = self->_transfer_buflen;
 			if (offset + len > [data length]) {
 				len = (uint32_t)([data length] - offset);
 			}
@@ -1680,7 +1681,7 @@ typedef void (^WritefunType)(SFTPMessage *);
 		};
 
 		/* Dispatch first read request. */
-		uint32_t len = _transfer_buflen;
+		uint32_t len = self->_transfer_buflen;
 		if (offset + len > [data length]) {
 			len = (uint32_t)([data length] - offset);
 		}

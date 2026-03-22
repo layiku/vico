@@ -337,7 +337,7 @@
 	/* User-defaults variables.
 	 */
 	NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
-	if ([defs integerForKey:@"expandtab"] == NSOnState)
+	if ([defs integerForKey:@"expandtab"] == NSControlStateValueOn)
 		[env setObject:@"YES" forKey:@"TM_SOFT_TABS" ];
 	else
 		[env setObject:@"NO" forKey:@"TM_SOFT_TABS" ];

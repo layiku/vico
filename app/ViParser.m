@@ -24,6 +24,7 @@
  */
 
 #import "ViParser.h"
+#import "ViTextView.h"
 #import "ViError.h"
 #import "NSString-additions.h"
 #import "ViMacro.h"

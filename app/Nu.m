@@ -370,7 +370,7 @@ static void transplant_nu_methods(Class destination, Class source)
         NSLog(@"method copy failed");
 }
 
-void NuInit()
+void NuInit(void)
 {
     static BOOL initialized = NO;
     if (initialized) {
@@ -420,7 +420,7 @@ void NuInit()
 
 // Helpers for programmatic construction of Nu code.
 
-id _nunull()
+id _nunull(void)
 {
     return [NSNull null];
 }
@@ -1964,24 +1964,18 @@ static IMP construct_method_handler(SEL sel, NuBlock *block, const char *signatu
         NSLog(@"unable to prepare closure for signature %s (ffi_prep_cif failed)", signature);
         return NULL;
     }
-    ffi_closure *closure = (ffi_closure *)mmap(NULL, sizeof(ffi_closure), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-    if (closure == (ffi_closure *) -1) {
-        NSLog(@"unable to prepare closure for signature %s (mmap failed with error %d)", signature, errno);
-        return NULL;
-    }
-    if (closure == NULL) {
+    void *code_ptr = NULL;
+    ffi_closure *closure = ffi_closure_alloc(sizeof(ffi_closure), &code_ptr);
+    if (!closure) {
         NSLog(@"unable to prepare closure for signature %s (could not allocate memory for closure)", signature);
         return NULL;
     }
-    if (ffi_prep_closure(closure, cif, objc_calling_nu_method_handler, userdata) != FFI_OK) {
-        NSLog(@"unable to prepare closure for signature %s (ffi_prep_closure failed)", signature);
+    if (ffi_prep_closure_loc(closure, cif, objc_calling_nu_method_handler, userdata, code_ptr) != FFI_OK) {
+        NSLog(@"unable to prepare closure for signature %s (ffi_prep_closure_loc failed)", signature);
+        ffi_closure_free(closure);
         return NULL;
     }
-    if (mprotect(closure, sizeof(closure), PROT_READ | PROT_EXEC) == -1) {
-        NSLog(@"unable to prepare closure for signature %s (mprotect failed with error %d)", signature, errno);
-        return NULL;
-    }
-    return (IMP) closure;
+    return (IMP) code_ptr;
 }
 
 static id add_method_to_class(Class c, NSString *methodName, NSString *signature, NuBlock *block)
@@ -2004,9 +1998,6 @@ static id add_method_to_class(Class c, NSString *methodName, NSString *signature
     if (!nu_block_table) nu_block_table = [[NSMutableDictionary alloc] init];
     // watch for problems caused by these ugly casts...
     [nu_block_table setObject:block forKey:[NSNumber numberWithUnsignedLong:(unsigned long) imp]];
-#if !TARGET_OS_IPHONE
-    [[NSGarbageCollector defaultCollector] disableCollectorForPointer: block];
-#endif
     // insert the method handler in the class method table
     nu_class_replaceMethod(c, selector, imp, signature_str);
     //NSLog(@"setting handler for %s(%s) in class %s", method_name_str, signature_str, class_getName(c));
@@ -2661,24 +2652,18 @@ static void *construct_block_handler(NuBlock *block, const char *signature)
         NSLog(@"unable to prepare closure for signature %s (ffi_prep_cif failed)", signature);
         return NULL;
     }
-    ffi_closure *closure = (ffi_closure *)mmap(NULL, sizeof(ffi_closure), PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-    if (closure == (ffi_closure *) -1) {
-        NSLog(@"unable to prepare closure for signature %s (mmap failed with error %d)", signature, errno);
-        return NULL;
-    }
-    if (closure == NULL) {
+    void *code_ptr = NULL;
+    ffi_closure *closure = ffi_closure_alloc(sizeof(ffi_closure), &code_ptr);
+    if (!closure) {
         NSLog(@"unable to prepare closure for signature %s (could not allocate memory for closure)", signature);
         return NULL;
     }
-    if (ffi_prep_closure(closure, cif, objc_calling_nu_block_handler, userdata) != FFI_OK) {
-        NSLog(@"unable to prepare closure for signature %s (ffi_prep_closure failed)", signature);
+    if (ffi_prep_closure_loc(closure, cif, objc_calling_nu_block_handler, userdata, code_ptr) != FFI_OK) {
+        NSLog(@"unable to prepare closure for signature %s (ffi_prep_closure_loc failed)", signature);
+        ffi_closure_free(closure);
         return NULL;
     }
-    if (mprotect(closure, sizeof(closure), PROT_READ | PROT_EXEC) == -1) {
-        NSLog(@"unable to prepare closure for signature %s (mprotect failed with error %d)", signature, errno);
-        return NULL;
-    }
-    return (void*)closure;
+    return code_ptr;
 }
 
 #endif //__BLOCKS__
@@ -4678,9 +4663,13 @@ static NSComparisonResult sortedArrayUsingBlockHelper(id a, id b, void *context)
 + (NSData *) dataWithShellCommand:(NSString *) command standardInput:(id) input
 {
     char *input_template = strdup("/tmp/nuXXXXXX");
-    char *input_filename = mktemp(input_template);
+    int input_fd = mkstemp(input_template);
+    if (input_fd >= 0) close(input_fd);
+    char *input_filename = (input_fd >= 0) ? input_template : NULL;
     char *output_template = strdup("/tmp/nuXXXXXX");
-    char *output_filename = mktemp(output_template);
+    int output_fd = mkstemp(output_template);
+    if (output_fd >= 0) close(output_fd);
+    char *output_filename = (output_fd >= 0) ? output_template : NULL;
     id returnValue = nil;
     if (input_filename || output_filename) {
         NSString *inputFileName = [NSString stringWithCString:input_filename encoding:NSUTF8StringEncoding];
@@ -10138,7 +10127,13 @@ static NSUInteger nu_parse_escape_sequences(NSString *string, NSUInteger i, NSUI
         if (line && *line && strcmp(line, "quit"))
             add_history (line);
 #endif
-        if(!line || !strcmp(line, "quit")) {
+        if(
+#ifdef IPHONENOREADLINE
+           !line[0]
+#else
+           !line
+#endif
+           || !strcmp(line, "quit")) {
             break;
         }
         else {
@@ -10848,7 +10843,7 @@ static NuProfiler *defaultProfiler = nil;
 
 @end
 
-static void nu_swizzleContainerClasses()
+static void nu_swizzleContainerClasses(void)
 {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
     Class NSCFDictionary = NSClassFromString(@"NSCFDictionary");
@@ -11186,27 +11181,13 @@ static int deallocationCount = 0;
     [super dealloc];
 }
 
-- (void) finalize
-{
-    if (verbose_helper)
-        NSLog(@"(NuTestHelper finalize %p)", self);
-    deallocationCount++;
-    [super finalize];
-}
-
 + (void) resetDeallocationCount
 {
-#if !TARGET_OS_IPHONE
-	[[NSGarbageCollector defaultCollector] collectExhaustively];
-#endif
     deallocationCount = 0;
 }
 
 + (int) deallocationCount
 {
-#if !TARGET_OS_IPHONE
-	[[NSGarbageCollector defaultCollector] collectExhaustively];
-#endif
     return deallocationCount;
 }
 

@@ -10862,8 +10862,8 @@ code2_hash(OnigCodePoint* x)
 }
 
 static struct st_hash_type type_code2_hash = {
-  code2_cmp,
-  code2_hash,
+  (int (*)(st_data_t, st_data_t))code2_cmp,
+  (int (*)(st_data_t))code2_hash,
 };
 
 static int
@@ -10880,8 +10880,8 @@ code3_hash(OnigCodePoint* x)
 }
 
 static struct st_hash_type type_code3_hash = {
-  code3_cmp,
-  code3_hash,
+  (int (*)(st_data_t, st_data_t))code3_cmp,
+  (int (*)(st_data_t))code3_hash,
 };
 
 

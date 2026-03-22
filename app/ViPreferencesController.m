@@ -86,23 +86,43 @@ ToolbarHeightForWindow(NSWindow *window)
 
 - (id)init
 {
-	if ((self = [super initWithWindowNibName:@"PreferenceWindow"])) {
+	if ((self = [super initWithWindow:nil]) != nil) {
 		_blankView = [[NSView alloc] init];
 		_panes = [[NSMutableArray alloc] init];
 		_toolbarItems = [[NSMutableDictionary alloc] init];
+		[self buildWindow];
 	}
 
 	return self;
 }
 
-
-- (void)windowDidLoad
+- (void)buildWindow
 {
-	/* We want the preference window to move to the active space. */
-	[[self window] setCollectionBehavior:NSWindowCollectionBehaviorMoveToActiveSpace];
+	// NSPanel (480×180, titled+closable)
+	NSPanel *panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(418, 442, 480, 180)
+						    styleMask:(NSWindowStyleMaskTitled |
+							       NSWindowStyleMaskClosable)
+						      backing:NSBackingStoreBuffered
+							defer:YES];
+	[panel setTitle:@"Preferences"];
+	[panel setDelegate:self];
+
+	// NSToolbar
+	NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier:@"PreferenceWindowToolbar"];
+	[toolbar setDisplayMode:NSToolbarDisplayModeIconAndLabel];
+	[toolbar setSizeMode:NSToolbarSizeModeRegular];
+	[toolbar setAllowsUserCustomization:NO];
+	[toolbar setAutosavesConfiguration:YES];
+	[toolbar setDelegate:self];
+	[panel setToolbar:toolbar];
+
+	[self setWindow:panel];
+
+	// --- windowDidLoad logic ---
+	[panel setCollectionBehavior:NSWindowCollectionBehaviorMoveToActiveSpace];
 	[self setWindowFrameAutosaveName:@"PreferenceWindow"];
 
-	/* Load last viewed pane. */
+	// Load last viewed pane
 	NSString *lastPrefPane = [[NSUserDefaults standardUserDefaults]
 	    objectForKey:@"lastPrefPane"];
 	if (lastPrefPane == nil)

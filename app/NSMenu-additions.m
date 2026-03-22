@@ -25,6 +25,7 @@
 
 #import "ViRegexp.h"
 #import "ViCommandMenuItemView.h"
+#import "ViTextView.h"
 #include "logging.h"
 
 @implementation NSMenu (additions)

@@ -27,7 +27,7 @@
 
 #import "ViKeyManager.h"
 
-@interface ViWebView : WebView <ViKeyManagerTarget>
+@interface ViWebView : WKWebView <ViKeyManagerTarget>
 {
 	ViKeyManager *_keyManager;
 }

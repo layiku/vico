@@ -399,7 +399,6 @@
 		DEBUG(@"stopping fs events %@", FSEventStreamCopyDescription(_evstream));
 		_lastEventId = FSEventStreamGetLatestEventId(_evstream);
 		FSEventStreamStop(_evstream);
-		FSEventStreamUnscheduleFromRunLoop(_evstream, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
 		FSEventStreamInvalidate(_evstream);
 		FSEventStreamRelease(_evstream);
 		_evstream = NULL;
@@ -505,7 +504,7 @@ void mycallback(
 	);
 
 	if (_evstream != NULL) {
-		FSEventStreamScheduleWithRunLoop(_evstream, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+		FSEventStreamSetDispatchQueue(_evstream, dispatch_get_main_queue());
 		FSEventStreamStart(_evstream);
 	}
 }

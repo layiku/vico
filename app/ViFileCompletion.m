@@ -55,7 +55,7 @@
 	if ([path rangeOfString:@"://"].location != NSNotFound) {
 		isAbsoluteURL = YES;
 		url = [NSURL URLWithString:
-		    [path stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]];
+		    [path stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]]];
 		if (url == nil) {
 			if (outError)
 				*outError = [ViError errorWithFormat:@"failed to parse url %@", path];
@@ -83,7 +83,7 @@
 		else
 			basePath = [path stringByDeletingLastPathComponent];
 		url = [[NSURL URLWithString:
-		    [path stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]
+		    [path stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]]
 			     relativeToURL:relURL] absoluteURL];
 	}
 
@@ -115,7 +115,7 @@
 		NSNumber *isCaseSensitive;
 		if ([url getResourceValue:&isCaseSensitive
 				   forKey:NSURLVolumeSupportsCaseSensitiveNamesKey
-				    error:NULL] && ![isCaseSensitive intValue] == 1) {
+				    error:NULL] && [isCaseSensitive intValue] != 1) {
 			opts |= NSCaseInsensitiveSearch;
 		}
 	}

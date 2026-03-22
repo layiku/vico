@@ -58,7 +58,7 @@
 												range:NSMakeRange(0, IMAX(0, [snippetString length] - 1))];
 
 		expandedSnippetString = indentedSnippetString;
-		if ([[self preference:@"expandtab" atLocation:aRange.location] integerValue] == NSOnState) {
+		if ([[self preference:@"expandtab" atLocation:aRange.location] integerValue] == NSControlStateValueOn) {
 			NSInteger shiftWidth = [[self preference:@"shiftwidth" atLocation:aRange.location] integerValue];
 			NSString *tabString = [@"" stringByPaddingToLength:shiftWidth withString:@" " startingAtIndex:0];
 			expandedSnippetString = [indentedSnippetString stringByReplacingOccurrencesOfString:@"\t" withString:tabString];

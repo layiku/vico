@@ -47,6 +47,10 @@
 #import "ViBgView.h"
 #import "ViMark.h"
 #import "NSWindow-additions.h"
+#import "ViWindow.h"
+#import "ViOutlineView.h"
+#import "ViPathCell.h"
+#import "MHTextIconCell.h"
 
 static NSMutableArray			*__windowControllers = nil;
 static __weak ViWindowController	*__currentWindowController = nil; // XXX: not retained!
@@ -83,18 +87,624 @@ static __weak ViWindowController	*__currentWindowController = nil; // XXX: not r
 @synthesize symbolController;
 @synthesize parser = _parser;
 
+static NSString * const ViToolbarSearchFilesIdentifier = @"DFA8D257-33CE-4B94-9A82-F32B4834D336";
+static NSString * const ViToolbarJumplistIdentifier = @"A5D7659A-ADA6-40F3-B486-331EFC1AB92D";
+static NSString * const ViToolbarOpenFilesIdentifier = @"98E7B3F9-CEA0-4FC5-9278-AA242507BAEB";
+static NSString * const ViToolbarSearchSymbolsIdentifier = @"096C0DD7-D580-4A2A-87EC-F8FB4B6BF57E";
+static NSString * const ViToolbarSymbolListIdentifier = @"97A4CB2E-3C18-48CF-BF90-8FC380EB37F7";
+static NSString * const ViToolbarExplorerIdentifier = @"BDF9742C-C420-4339-A342-3ADDCA8D278D";
+
 + (ViWindowController *)currentWindowController
 {
-	// if (__currentWindowController == nil) {
-	// 	ViWindowController *windowController = [[[ViWindowController alloc] init] autorelease];
-	// 	[windowController window]; // trigger immediate NIB loading
-	// }
 	return __currentWindowController;
 }
 
+#pragma mark - Programmatic UI construction
+
+- (NSMenu *)buildExplorerActionMenu
+{
+	NSMenu *menu = [[NSMenu alloc] init];
+	NSMenuItem *item;
+
+	[menu addItemWithTitle:@"Item" action:nil keyEquivalent:@""];
+
+	item = [menu addItemWithTitle:@"Open in new tab (t)" action:@selector(openInTab:) keyEquivalent:@""];
+	[item setTag:4000]; [item setTarget:explorer];
+	item = [menu addItemWithTitle:@"Open in current view (o)" action:@selector(openInCurrentView:) keyEquivalent:@""];
+	[item setTag:4000]; [item setTarget:explorer];
+	item = [menu addItemWithTitle:@"Open in split (s)" action:@selector(openInSplit:) keyEquivalent:@""];
+	[item setTag:4000]; [item setTarget:explorer];
+	item = [menu addItemWithTitle:@"Open in vertical split (v)" action:@selector(openInVerticalSplit:) keyEquivalent:@""];
+	[item setTag:4000]; [item setTarget:explorer];
+
+	[menu addItem:[NSMenuItem separatorItem]];
+	item = [menu addItemWithTitle:@"Browse remote files" action:@selector(addSFTPLocation:) keyEquivalent:@""];
+	[item setTarget:explorer];
+
+	[menu addItem:[NSMenuItem separatorItem]];
+	item = [menu addItemWithTitle:@"New folder (N)" action:@selector(newFolder:) keyEquivalent:@""];
+	[item setTag:4000]; [item setTarget:explorer];
+	item = [menu addItemWithTitle:@"New file (n)" action:@selector(newDocument:) keyEquivalent:@""];
+	[item setTag:4000]; [item setTarget:explorer];
+	item = [menu addItemWithTitle:@"Rename file (r)" action:@selector(renameFile:) keyEquivalent:@""];
+	[item setTag:4000]; [item setTarget:explorer];
+	item = [menu addItemWithTitle:@"Remove files (dd)" action:@selector(removeFiles:) keyEquivalent:@""];
+	[item setTag:4000]; [item setTarget:explorer];
+
+	[menu addItem:[NSMenuItem separatorItem]];
+	item = [menu addItemWithTitle:@"Reveal in Finder" action:@selector(revealInFinder:) keyEquivalent:@""];
+	[item setTarget:explorer];
+	item = [menu addItemWithTitle:@"Open with Finder" action:@selector(openWithFinder:) keyEquivalent:@""];
+	[item setTarget:explorer];
+
+	[menu addItem:[NSMenuItem separatorItem]];
+	item = [menu addItemWithTitle:@"Rescan folder (<c-l>)" action:@selector(rescan:) keyEquivalent:@""];
+	[item setTag:4000]; [item setTarget:explorer];
+	item = [menu addItemWithTitle:@"Flush folder cache" action:@selector(flushCache:) keyEquivalent:@""];
+	[item setTarget:explorer];
+
+	[menu addItem:[NSMenuItem separatorItem]];
+
+	NSUserDefaultsController *udc = [NSUserDefaultsController sharedUserDefaultsController];
+	item = [menu addItemWithTitle:@"Sort folders at top" action:nil keyEquivalent:@""];
+	[item bind:@"value" toObject:udc withKeyPath:@"values.exploresortfolders" options:nil];
+	item = [menu addItemWithTitle:@"Sort case insensitive" action:nil keyEquivalent:@""];
+	[item bind:@"value" toObject:udc withKeyPath:@"values.explorecaseignore" options:nil];
+
+	return menu;
+}
+
+- (ViBgView *)buildExplorerView
+{
+	ViBgView *view = [[ViBgView alloc] initWithFrame:NSMakeRect(0, 0, 150, 389)];
+	[view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+
+	/* Search field at top */
+	NSSearchField *altFilterField = [[NSSearchField alloc] initWithFrame:NSMakeRect(1, 364, 148, 22)];
+	[altFilterField setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
+	[view addSubview:altFilterField];
+
+	/* Progress indicator */
+	NSProgressIndicator *indicator = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(39, 3, 16, 16)];
+	[indicator setStyle:NSProgressIndicatorStyleSpinning];
+	[indicator setControlSize:NSControlSizeSmall];
+	[indicator setDisplayedWhenStopped:NO];
+	[view addSubview:indicator];
+
+	/* Scroll view + outline view */
+	NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 23, 150, 366)];
+	[scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[scrollView setHasVerticalScroller:YES];
+	[scrollView setHasHorizontalScroller:NO];
+	[scrollView setBorderType:NSNoBorder];
+
+	ViOutlineView *outlineView = [[ViOutlineView alloc] initWithFrame:NSMakeRect(0, 0, 150, 366)];
+	[outlineView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[outlineView setRowHeight:20];
+	[outlineView setHeaderView:nil];
+	NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:@"explorerColumn"];
+	[col setWidth:147]; [col setMinWidth:16]; [col setMaxWidth:1000];
+	NSCell *cell = [[MHTextIconCell alloc] init];
+	[cell setLineBreakMode:NSLineBreakByTruncatingTail]; [cell setWraps:NO];
+	[col setDataCell:cell];
+	[outlineView addTableColumn:col];
+	[outlineView setOutlineTableColumn:col];
+	[scrollView setDocumentView:outlineView];
+	[view addSubview:scrollView];
+
+	/* Path control */
+	NSPathControl *pathCtrl = [[NSPathControl alloc] initWithFrame:NSMakeRect(30, 0, 107, 20)];
+	[pathCtrl setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
+	ViPathCell *pathCell = [[ViPathCell alloc] init];
+	[pathCtrl setCell:pathCell];
+	[pathCtrl setPathStyle:NSPathStyleStandard];
+	[view addSubview:pathCtrl];
+
+	/* Action bar background */
+	NSImageView *actionBg = [[NSImageView alloc] initWithFrame:NSMakeRect(31, 0, 104, 23)];
+	[actionBg setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
+	[actionBg setImage:[NSImage imageNamed:@"actionbarbg"]];
+	[actionBg setImageScaling:NSImageScaleAxesIndependently];
+	[view addSubview:actionBg positioned:NSWindowBelow relativeTo:pathCtrl];
+
+	/* Resize handle */
+	NSImageView *resizeView = [[NSImageView alloc] initWithFrame:NSMakeRect(135, 0, 15, 23)];
+	[resizeView setAutoresizingMask:NSViewMinXMargin | NSViewMaxYMargin];
+	[resizeView setImage:[NSImage imageNamed:@"resizehandle"]];
+	[view addSubview:resizeView];
+
+	/* Action popup button */
+	NSPopUpButton *actionBtn = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 31, 23) pullsDown:YES];
+	[actionBtn setAutoresizingMask:NSViewMaxXMargin | NSViewMaxYMargin];
+	[actionBtn setBordered:NO];
+	ViToolbarPopUpButtonCell *actionBtnCell = [[ViToolbarPopUpButtonCell alloc] init];
+	[actionBtn setCell:actionBtnCell];
+	[view addSubview:actionBtn];
+
+	/* Wire ViFileExplorer outlets */
+	[explorer setValue:outlineView forKey:@"explorer"];
+	[explorer setValue:scrollView forKey:@"scrollView"];
+	[explorer setValue:altFilterField forKey:@"altFilterField"];
+	[explorer setValue:indicator forKey:@"progressIndicator"];
+	[explorer setValue:pathCtrl forKey:@"pathControl"];
+	[explorer setValue:actionBtn forKey:@"actionButton"];
+	[explorer setValue:actionBtnCell forKey:@"actionButtonCell"];
+	[explorer setValue:view forKey:@"explorerView"];
+
+	projectResizeView = resizeView;
+
+	return view;
+}
+
+- (ViBgView *)buildSymbolsView
+{
+	ViBgView *view = [[ViBgView alloc] initWithFrame:NSMakeRect(0, 0, 150, 489)];
+	[view setAutoresizingMask:NSViewMinXMargin | NSViewHeightSizable];
+
+	/* Alt filter field */
+	NSSearchField *altSymbolFilterField = [[NSSearchField alloc] initWithFrame:NSMakeRect(1, 464, 148, 22)];
+	[altSymbolFilterField setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
+	[view addSubview:altSymbolFilterField];
+
+	/* Resize handle */
+	NSImageView *resizeView = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, 15, 23)];
+	[resizeView setAutoresizingMask:NSViewMaxXMargin | NSViewMaxYMargin];
+	[resizeView setImage:[NSImage imageNamed:@"resizehandle"]];
+	[view addSubview:resizeView];
+
+	/* Action bar background */
+	NSImageView *actionBg = [[NSImageView alloc] initWithFrame:NSMakeRect(15, 0, 135, 23)];
+	[actionBg setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
+	[actionBg setImage:[NSImage imageNamed:@"actionbarbg"]];
+	[actionBg setImageScaling:NSImageScaleAxesIndependently];
+	[view addSubview:actionBg];
+
+	/* Scroll view + outline view */
+	NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 23, 150, 465)];
+	[scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[scrollView setHasVerticalScroller:YES];
+	[scrollView setHasHorizontalScroller:NO];
+	[scrollView setBorderType:NSNoBorder];
+
+	ViOutlineView *outlineView = [[ViOutlineView alloc] initWithFrame:NSMakeRect(0, 0, 150, 465)];
+	[outlineView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[outlineView setRowHeight:20];
+	[outlineView setHeaderView:nil];
+	[outlineView setAutosaveName:@"symbolsOutline"];
+	NSTableColumn *col = [[NSTableColumn alloc] initWithIdentifier:@"symbolColumn"];
+	[col setWidth:147]; [col setMinWidth:16]; [col setMaxWidth:1000];
+	[outlineView addTableColumn:col];
+	[outlineView setOutlineTableColumn:col];
+	[scrollView setDocumentView:outlineView];
+	[view addSubview:scrollView];
+
+	/* Wire ViSymbolController outlets */
+	[symbolController setValue:outlineView forKey:@"symbolView"];
+	[symbolController setValue:altSymbolFilterField forKey:@"altSymbolFilterField"];
+	[symbolController setValue:view forKey:@"symbolsView"];
+	[symbolController setValue:scrollView forKey:@"scrollView"];
+
+	symbolsResizeView = resizeView;
+
+	return view;
+}
+
+- (NSWindow *)buildSFTPSheet
+{
+	NSWindow *sheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(196, 323, 382, 187)
+						      styleMask:NSWindowStyleMaskTitled
+							backing:NSBackingStoreBuffered
+							  defer:YES];
+	NSView *content = [sheet contentView];
+
+	/* Instructions label */
+	NSTextField *label = [[NSTextField alloc] initWithFrame:NSMakeRect(17, 150, 242, 17)];
+	[label setStringValue:@"Connect to a remote host using SFTP:"];
+	[label setBezeled:NO]; [label setDrawsBackground:NO]; [label setEditable:NO]; [label setSelectable:NO];
+	[content addSubview:label];
+
+	/* SFTP connection fields (replacing deprecated NSForm) */
+	CGFloat fieldX = 100, fieldW = 262, fieldH = 22, labelW = 75, rowH = 26;
+	CGFloat baseY = 68;
+	NSArray *labels = @[@"Host:", @"Username:", @"Directory:"];
+	NSTextField *sftpFields[3];
+	for (NSUInteger i = 0; i < 3; i++) {
+		CGFloat y = baseY + (2 - i) * rowH;
+		NSTextField *label = [NSTextField labelWithString:labels[i]];
+		[label setFrame:NSMakeRect(20, y, labelW, fieldH)];
+		[label setAlignment:NSTextAlignmentRight];
+		[content addSubview:label];
+		NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(fieldX, y, fieldW, fieldH)];
+		[content addSubview:field];
+		sftpFields[i] = field;
+	}
+	[explorer setValue:sftpFields[0] forKey:@"sftpHostField"];
+	[explorer setValue:sftpFields[1] forKey:@"sftpUserField"];
+	[explorer setValue:sftpFields[2] forKey:@"sftpPathField"];
+
+	/* Connect button */
+	NSButton *connectBtn = [[NSButton alloc] initWithFrame:NSMakeRect(276, 12, 92, 32)];
+	[connectBtn setTitle:@"Connect"];
+	[connectBtn setBezelStyle:NSBezelStyleRounded];
+	[connectBtn setKeyEquivalent:@"\r"];
+	[connectBtn setTarget:explorer];
+	[connectBtn setAction:@selector(acceptSftpSheet:)];
+	[content addSubview:connectBtn];
+
+	/* Cancel button */
+	NSButton *cancelBtn = [[NSButton alloc] initWithFrame:NSMakeRect(194, 12, 82, 32)];
+	[cancelBtn setTitle:@"Cancel"];
+	[cancelBtn setBezelStyle:NSBezelStyleRounded];
+	[cancelBtn setKeyEquivalent:@"\033"];
+	[cancelBtn setTarget:explorer];
+	[cancelBtn setAction:@selector(cancelSftpSheet:)];
+	[content addSubview:cancelBtn];
+
+
+	return sheet;
+}
+
+- (void)buildWindow
+{
+	/* Create main window */
+	NSUInteger styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+			       NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+	ViWindow *window = [[ViWindow alloc] initWithContentRect:NSMakeRect(340, 173, 800, 600)
+						       styleMask:styleMask
+							 backing:NSBackingStoreBuffered
+							   defer:YES];
+	[window setTitle:@"Window"];
+	[window setContentMinSize:NSMakeSize(400, 200)];
+	[window setFrameAutosaveName:@"documentWindow"];
+	[window setRestorable:YES];
+	[self setWindow:window];
+
+	NSView *contentView = [window contentView];
+
+	/* ====== Tab bar (PSMTabBarControl) ====== */
+	tabBar = [[PSMTabBarControl alloc] initWithFrame:NSMakeRect(0, 578, 800, 22)];
+	[tabBar setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
+	[contentView addSubview:tabBar];
+
+	/* ====== Main split view ====== */
+	splitView = [[NSSplitView alloc] initWithFrame:NSMakeRect(0, 0, 800, 578)];
+	[splitView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[splitView setVertical:YES];
+	[splitView setDividerStyle:NSSplitViewDividerStyleThin];
+	[splitView setDelegate:self];
+	[contentView addSubview:splitView];
+
+	/* ====== Main view (center content area) ====== */
+	mainView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 800, 578)];
+	[mainView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+
+	/* Inner view container */
+	NSView *innerContainer = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 800, 578)];
+	[innerContainer setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+
+	/* Action bar background image */
+	NSImageView *actionBg = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, 800, 23)];
+	[actionBg setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
+	[actionBg setImage:[NSImage imageNamed:@"actionbarbg"]];
+	[actionBg setImageScaling:NSImageScaleAxesIndependently];
+	[innerContainer addSubview:actionBg];
+
+	/* Bundle popup button */
+	bundleButton = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 31, 23) pullsDown:YES];
+	[bundleButton setAutoresizingMask:NSViewMaxXMargin | NSViewMaxYMargin];
+	[bundleButton setBordered:NO];
+	bundleButtonCell = [[ViToolbarPopUpButtonCell alloc] init];
+	[bundleButton setCell:bundleButtonCell];
+	NSMenu *bundleMenu = [[NSMenu alloc] init];
+	[bundleButton setMenu:bundleMenu];
+	[innerContainer addSubview:bundleButton];
+
+	/* Status bar (ViStatusView) */
+	messageView = [[ViStatusView alloc] initWithFrame:NSMakeRect(36, 4, 758, 14)];
+	[messageView setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
+	[innerContainer addSubview:messageView];
+
+	/* Status text field (ex command line) */
+	statusbar = [[NSTextField alloc] initWithFrame:NSMakeRect(31, 2.5, 766, 20)];
+	[statusbar setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
+	[statusbar setFont:[NSFont fontWithName:@"Monaco" size:10]];
+	[statusbar setDrawsBackground:YES];
+	[statusbar setBackgroundColor:[NSColor textBackgroundColor]];
+	[statusbar setTextColor:[NSColor textColor]];
+	[statusbar setBezeled:NO];
+	[statusbar setDelegate:self];
+	[innerContainer addSubview:statusbar];
+
+	/* Tab view (content area for document tabs) */
+	tabView = [[NSTabView alloc] initWithFrame:NSMakeRect(0, 23, 800, 555)];
+	[tabView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[tabView setTabViewType:NSNoTabsNoBorder];
+	[tabView setFont:[NSFont fontWithName:@"LucidaGrande" size:13]];
+	[innerContainer addSubview:tabView];
+
+	[mainView addSubview:innerContainer];
+	[splitView addSubview:mainView];
+
+	/* ====== Create top-level objects ====== */
+
+	/* File explorer controller */
+	explorer = [[ViFileExplorer alloc] init];
+	[explorer setValue:[self window] forKey:@"window"];
+	[explorer setValue:self forKey:@"windowController"];
+	[explorer setValue:splitView forKey:@"splitView"];
+	[explorer setValue:self forKey:@"delegate"];
+
+	/* Symbol controller */
+	symbolController = [[ViSymbolController alloc] init];
+	[symbolController setValue:[self window] forKey:@"window"];
+	[symbolController setValue:self forKey:@"windowController"];
+	[symbolController setValue:splitView forKey:@"splitView"];
+
+	/* Explorer action menu */
+	explorerActionMenu = [self buildExplorerActionMenu];
+	[explorer setValue:explorerActionMenu forKey:@"actionMenu"];
+
+	/* Explorer view (ViBgView) */
+	explorerView = [self buildExplorerView];
+
+	/* Symbols view (ViBgView) */
+	symbolsView = [self buildSymbolsView];
+
+	/* SFTP connect window */
+	sftpConnectView = [self buildSFTPSheet];
+	[explorer setValue:sftpConnectView forKey:@"sftpConnectView"];
+
+	/* ====== Toolbar ====== */
+	NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier:@"4D9B28D8-A177-4086-91E8-A53904734D79"];
+	[toolbar setDelegate:self];
+	[toolbar setDisplayMode:NSToolbarDisplayModeIconAndLabel];
+	[toolbar setSizeMode:NSToolbarSizeModeRegular];
+	[toolbar setAllowsUserCustomization:YES];
+	[toolbar setAutosavesConfiguration:YES];
+	[window setToolbar:toolbar];
+
+	/* ====== Wire remaining connections ====== */
+
+	/* PSMTabBarControl connections */
+	[tabBar setTabView:tabView];
+	[tabBar setDelegate:self];
+	[tabBar setPartnerView:splitView];
+
+	/* NSTabView connections */
+	[tabView setDelegate:tabBar];
+
+	/* Window connections */
+	[window setInitialFirstResponder:tabView];
+
+	/* ====== Trigger awakeFromNib on top-level objects ====== */
+	[explorer awakeFromNib];
+	[symbolController awakeFromNib];
+
+	/* ====== Merge windowDidLoad logic ====== */
+	_tagStack = [[ViMarkManager sharedManager] stackWithName:[NSString stringWithFormat:@"Tag Stack for window %p", self]];
+	[_tagStack setMaxLists:1];
+
+	[[NSNotificationCenter defaultCenter] addObserver:self
+						 selector:@selector(firstResponderChanged:)
+						     name:ViFirstResponderChangedNotification
+						   object:nil];
+	[[NSNotificationCenter defaultCenter] addObserver:self
+						 selector:@selector(caretChanged:)
+						     name:ViCaretChangedNotification
+						   object:nil];
+
+	[toolbar setShowsBaselineSeparator:NO];
+	[bookmarksButtonCell setImage:[NSImage imageNamed:@"bookmark"]];
+
+	[bundleButtonCell setImage:[NSImage imageNamed:@"actionmenu"]];
+	[[NSNotificationCenter defaultCenter] addObserver:self
+						 selector:@selector(setupBundleMenu:)
+						     name:NSPopUpButtonWillPopUpNotification
+						   object:bundleButton];
+
+	[[tabBar addTabButton] setTarget:self];
+	[[tabBar addTabButton] setAction:@selector(addNewDocumentTab:)];
+	[tabBar setStyleNamed:@"Metal"];
+	[tabBar setCanCloseOnlyTab:NO];
+	[tabBar setHideForSingleTab:[[NSUserDefaults standardUserDefaults] boolForKey:@"hidetab"]];
+	[tabBar setShowAddTabButton:YES];
+	[tabBar setAllowsDragBetweenWindows:NO];
+
+	[window setDelegate:self];
+	[window setFrameUsingName:@"MainDocumentWindow"];
+	[self setTheme:[[ViThemeStore defaultStore] defaultTheme]];
+
+	[splitView addSubview:explorerView positioned:NSWindowBelow relativeTo:mainView];
+	[splitView addSubview:symbolsView];
+
+	_isLoaded = YES;
+	if (_initialDocument) {
+		[self addNewTab:_initialDocument];
+		_initialDocument = nil;
+	}
+	if (_initialViewController) {
+		[self createTabWithViewController:_initialViewController];
+		_initialViewController = nil;
+	}
+
+	[window setCollectionBehavior:NSWindowCollectionBehaviorFullScreenPrimary];
+	[window makeKeyAndOrderFront:self];
+
+	NSRect frame = [splitView frame];
+	[splitView setPosition:0 ofDividerAtIndex:0];
+	[splitView setPosition:NSWidth(frame) ofDividerAtIndex:1];
+
+	if ([self project] != nil) {
+		[self setBaseURL:[[self project] initialURL]];
+		[explorer openExplorerTemporarily:NO];
+	}
+
+	[self updateJumplistNavigator];
+
+	[_parser setNviStyleUndo:[[[NSUserDefaults standardUserDefaults] stringForKey:@"undostyle"] isEqualToString:@"nvi"]];
+	[[NSUserDefaults standardUserDefaults] addObserver:self
+						forKeyPath:@"undostyle"
+						   options:NSKeyValueObservingOptionNew
+						   context:NULL];
+
+	NuBlock *statusSetupBlock = [(ViAppController *)[NSApp delegate] statusSetupBlock];
+	if (statusSetupBlock) {
+		NuCell *argument = [[NSArray arrayWithObject:messageView] list];
+		@try {
+			[statusSetupBlock evalWithArguments:argument
+						   context:[statusSetupBlock context]];
+		}
+		@catch (NSException *exception) {
+			INFO(@"got exception %@ while evaluating expression:\n%@", [exception name], [exception reason]);
+			INFO(@"context was: %@", [statusSetupBlock context]);
+			[self message:[NSString stringWithFormat:@"Got exception %@: %@", [exception name], [exception reason]]];
+		}
+	} else {
+		ViStatusNotificationLabel *caretLabel =
+			[ViStatusNotificationLabel statusLabelForNotification:ViCaretChangedNotification
+							     withTransformer:^(ViStatusView *statusView, NSNotification *notification) {
+				ViTextView *textView = (ViTextView *)[notification object];
+				if ([statusView window] != [textView window])
+					return (id)nil;
+				return (id)[NSString stringWithFormat:@"%lu,%lu",
+					(unsigned long)[textView currentLine],
+					(unsigned long)[textView currentColumn]];
+			}];
+		ViStatusNotificationLabel *modeLabel =
+			[ViStatusNotificationLabel statusLabelForNotification:ViModeChangedNotification
+							     withTransformer:^(ViStatusView *statusView, NSNotification *notification) {
+				ViTextView *textView = (ViTextView *)[notification object];
+				ViDocument *document = textView.document;
+				if (! [textView superview] || [statusView window] != [textView window])
+					return (id)nil;
+				const char *modestr = "";
+				if (document.busy) {
+					modestr = "--BUSY--";
+				} else if (textView.mode == ViInsertMode) {
+					if (document.snippet)
+						modestr = "--SNIPPET--";
+					else
+						modestr = "--INSERT--";
+				} else if (textView.mode == ViVisualMode) {
+					if (textView.visual_line_mode)
+						modestr = "--VISUAL LINE--";
+					else
+						modestr = "--VISUAL--";
+				}
+				return (id)[NSString stringWithFormat:@"    %s", modestr];
+			}];
+		[messageView setStatusComponents:[NSArray arrayWithObjects:caretLabel, modeLabel, nil]];
+	}
+
+	[[NSNotificationCenter defaultCenter] postNotificationName:ViWindowDidLoad object:self];
+}
+
+#pragma mark - NSToolbarDelegate
+
+- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar
+     itemForItemIdentifier:(NSString *)identifier
+ willBeInsertedIntoToolbar:(BOOL)flag
+{
+	NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:identifier];
+
+	if ([identifier isEqualToString:ViToolbarSearchFilesIdentifier]) {
+		[item setLabel:@"Search Files"];
+		NSSearchField *field = [[NSSearchField alloc] initWithFrame:NSMakeRect(0, 0, 144, 22)];
+		[field setDelegate:explorer];
+		[explorer setValue:field forKey:@"filterField"];
+		[explorer setValue:item forKey:@"searchToolbarItem"];
+		[item setView:field];
+		field.translatesAutoresizingMaskIntoConstraints = NO;
+		[field.widthAnchor constraintEqualToConstant:144].active = YES;
+		[field.heightAnchor constraintEqualToConstant:22].active = YES;
+	} else if ([identifier isEqualToString:ViToolbarJumplistIdentifier]) {
+		[item setLabel:@"Jumplist"];
+		jumplistNavigator = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, 0, 60, 25)];
+		[jumplistNavigator setSegmentCount:2];
+		[jumplistNavigator setImage:[NSImage imageNamed:NSImageNameGoLeftTemplate] forSegment:0];
+		[jumplistNavigator setImage:[NSImage imageNamed:NSImageNameGoRightTemplate] forSegment:1];
+		[jumplistNavigator setWidth:28 forSegment:0];
+		[jumplistNavigator setWidth:28 forSegment:1];
+		[(NSSegmentedCell *)[jumplistNavigator cell] setTrackingMode:NSSegmentSwitchTrackingMomentary];
+		[jumplistNavigator setTarget:self];
+		[jumplistNavigator setAction:@selector(navigateJumplist:)];
+		[item setView:jumplistNavigator];
+		jumplistNavigator.translatesAutoresizingMaskIntoConstraints = NO;
+		[jumplistNavigator.widthAnchor constraintEqualToConstant:60].active = YES;
+		[jumplistNavigator.heightAnchor constraintEqualToConstant:25].active = YES;
+	} else if ([identifier isEqualToString:ViToolbarOpenFilesIdentifier]) {
+		[item setLabel:@"Open files"];
+		openFilesButton = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 100, 25) pullsDown:NO];
+		bookmarksButtonCell = [[ViToolbarPopUpButtonCell alloc] init];
+		[openFilesButton setCell:bookmarksButtonCell];
+		[item setView:openFilesButton];
+		openFilesButton.translatesAutoresizingMaskIntoConstraints = NO;
+		[openFilesButton.widthAnchor constraintGreaterThanOrEqualToConstant:100].active = YES;
+		[openFilesButton.widthAnchor constraintLessThanOrEqualToConstant:200].active = YES;
+		[openFilesButton.heightAnchor constraintEqualToConstant:25].active = YES;
+	} else if ([identifier isEqualToString:ViToolbarSearchSymbolsIdentifier]) {
+		[item setLabel:@"Search Symbols"];
+		NSSearchField *field = [[NSSearchField alloc] initWithFrame:NSMakeRect(0, 0, 150, 22)];
+		[field setDelegate:symbolController];
+		[symbolController setValue:field forKey:@"symbolFilterField"];
+		[symbolController setValue:item forKey:@"searchToolbarItem"];
+		[item setView:field];
+		field.translatesAutoresizingMaskIntoConstraints = NO;
+		[field.widthAnchor constraintEqualToConstant:150].active = YES;
+		[field.heightAnchor constraintEqualToConstant:22].active = YES;
+	} else if ([identifier isEqualToString:ViToolbarSymbolListIdentifier]) {
+		[item setLabel:@"Symbol List"];
+		NSButton *btn = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 33, 25)];
+		[btn setBezelStyle:NSBezelStyleTexturedRounded];
+		[btn setImage:[NSImage imageNamed:@"symbols"]];
+		[btn setTarget:self];
+		[btn setAction:@selector(toggleSymbolList:)];
+		[item setView:btn];
+		btn.translatesAutoresizingMaskIntoConstraints = NO;
+		[btn.widthAnchor constraintEqualToConstant:33].active = YES;
+		[btn.heightAnchor constraintEqualToConstant:25].active = YES;
+	} else if ([identifier isEqualToString:ViToolbarExplorerIdentifier]) {
+		[item setLabel:@"Explorer"];
+		NSButton *btn = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 33, 25)];
+		[btn setBezelStyle:NSBezelStyleTexturedRounded];
+		[btn setImage:[NSImage imageNamed:@"explorer"]];
+		[btn setTarget:self];
+		[btn setAction:@selector(toggleExplorer:)];
+		[item setView:btn];
+		btn.translatesAutoresizingMaskIntoConstraints = NO;
+		[btn.widthAnchor constraintEqualToConstant:33].active = YES;
+		[btn.heightAnchor constraintEqualToConstant:25].active = YES;
+	}
+
+	return item;
+}
+
+- (NSArray *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar
+{
+	return @[ViToolbarSearchFilesIdentifier,
+		 ViToolbarJumplistIdentifier,
+		 ViToolbarOpenFilesIdentifier,
+		 NSToolbarFlexibleSpaceItemIdentifier,
+		 ViToolbarSearchSymbolsIdentifier];
+}
+
+- (NSArray *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar
+{
+	return @[ViToolbarSearchFilesIdentifier,
+		 ViToolbarJumplistIdentifier,
+		 ViToolbarOpenFilesIdentifier,
+		 ViToolbarSearchSymbolsIdentifier,
+		 ViToolbarSymbolListIdentifier,
+		 ViToolbarExplorerIdentifier,
+		 NSToolbarFlexibleSpaceItemIdentifier,
+		 NSToolbarSpaceItemIdentifier];
+}
+
+#pragma mark -
+
 - (id)init
 {
-	if ((self = [super initWithWindowNibName:@"ViDocumentWindow"]) != nil) {
+	if ((self = [super initWithWindow:nil]) != nil) {
 		_isLoaded = NO;
 		if (__windowControllers == nil)
 			__windowControllers = [[NSMutableArray alloc] init];
@@ -114,6 +724,7 @@ static __weak ViWindowController	*__currentWindowController = nil; // XXX: not r
                                                 forKeyPath:@"theme"
                                                    options:NSKeyValueObservingOptionNew
                                                    context:NULL];
+		[self buildWindow];
 	}
 
 	DEBUG_INIT();
@@ -225,139 +836,7 @@ DEBUG_FINALIZE();
 						   object:menu];
 }
 
-- (void)windowDidLoad
-{
-	_tagStack = [[ViMarkManager sharedManager] stackWithName:[NSString stringWithFormat:@"Tag Stack for window %p", self]];
-	[_tagStack setMaxLists:1];
 
-	[[NSNotificationCenter defaultCenter] addObserver:self
-						 selector:@selector(firstResponderChanged:)
-						     name:ViFirstResponderChangedNotification
-						   object:nil];
-	[[NSNotificationCenter defaultCenter] addObserver:self
-						 selector:@selector(caretChanged:)
-						     name:ViCaretChangedNotification
-						   object:nil];
-
-	[[[self window] toolbar] setShowsBaselineSeparator:NO];
-	[bookmarksButtonCell setImage:[NSImage imageNamed:@"bookmark"]];
-
-	[bundleButtonCell setImage:[NSImage imageNamed:@"actionmenu"]];
-	[[NSNotificationCenter defaultCenter] addObserver:self
-						 selector:@selector(setupBundleMenu:)
-						     name:NSPopUpButtonWillPopUpNotification
-						   object:bundleButton];
-
-	[[tabBar addTabButton] setTarget:self];
-	[[tabBar addTabButton] setAction:@selector(addNewDocumentTab:)];
-	[tabBar setStyleNamed:@"Metal"];
-	[tabBar setCanCloseOnlyTab:NO];
-	[tabBar setHideForSingleTab:[[NSUserDefaults standardUserDefaults] boolForKey:@"hidetab"]];
-	// FIXME: add KVC observer for the 'hidetab' option
-	[tabBar setPartnerView:splitView];
-	[tabBar setShowAddTabButton:YES];
-	[tabBar setAllowsDragBetweenWindows:NO]; // XXX: Must update for this to work without NSTabview
-
-	[[self window] setDelegate:self];
-	[[self window] setFrameUsingName:@"MainDocumentWindow"];
-	[self setTheme:[[ViThemeStore defaultStore] defaultTheme]];
-
-	[splitView addSubview:explorerView positioned:NSWindowBelow relativeTo:mainView];
-	[splitView addSubview:symbolsView];
-
-	_isLoaded = YES;
-	if (_initialDocument) {
-		[self addNewTab:_initialDocument];
-		_initialDocument = nil;
-	}
-	if (_initialViewController) {
-		[self createTabWithViewController:_initialViewController];
-		_initialViewController = nil;
-	}
-
-	[[self window] setCollectionBehavior:NSWindowCollectionBehaviorFullScreenPrimary];
-	[[self window] makeKeyAndOrderFront:self];
-
-	NSRect frame = [splitView frame];
-	[splitView setPosition:0 ofDividerAtIndex:0]; // Explorer not shown on launch
-	[splitView setPosition:NSWidth(frame) ofDividerAtIndex:1]; // Symbol list not shown on launch
-
-	if ([self project] != nil) {
-		[self setBaseURL:[[self project] initialURL]];
-		[explorer openExplorerTemporarily:NO];
-	}
-
-	[self updateJumplistNavigator];
-
-	[_parser setNviStyleUndo:[[[NSUserDefaults standardUserDefaults] stringForKey:@"undostyle"] isEqualToString:@"nvi"]];
-	[[NSUserDefaults standardUserDefaults] addObserver:self
-						forKeyPath:@"undostyle"
-						   options:NSKeyValueObservingOptionNew
-						   context:NULL];
-
-	// Set up default status bar.
-	NuBlock *statusSetupBlock = [(ViAppController *)[NSApp delegate] statusSetupBlock];
-	if (statusSetupBlock) {
-		NuCell *argument = [[NSArray arrayWithObject:messageView] list];
-
-		@try {
-			[statusSetupBlock evalWithArguments:argument
-										context:[statusSetupBlock context]];
-		}
-		@catch (NSException *exception) {
-			INFO(@"got exception %@ while evaluating expression:\n%@", [exception name], [exception reason]);
-			INFO(@"context was: %@", [statusSetupBlock context]);
-			[self message:[NSString stringWithFormat:@"Got exception %@: %@", [exception name], [exception reason]]];
-		}
-	} else {
-		ViStatusNotificationLabel *caretLabel =
-			[ViStatusNotificationLabel statusLabelForNotification:ViCaretChangedNotification
-												  withTransformer:^(ViStatusView *statusView, NSNotification *notification) {
-				ViTextView *textView = (ViTextView *)[notification object];
-
-				// If this is the ex box (which has no superview) or this is not
-				// for the current window, we bail on out.
-				if ([statusView window] != [textView window])
-					return (id)nil;
-
-				return (id)[NSString stringWithFormat:@"%lu,%lu",
-					(unsigned long)[textView currentLine],
-					(unsigned long)[textView currentColumn]];
-		  }];
-		ViStatusNotificationLabel *modeLabel =
-			[ViStatusNotificationLabel statusLabelForNotification:ViModeChangedNotification
-												withTransformer:^(ViStatusView *statusView, NSNotification *notification) {
-				ViTextView *textView = (ViTextView *)[notification object];
-				ViDocument *document = textView.document;
-
-				// If this is the ex box (which has no superview) or this is not
-				// for the current window, we bail on out.
-				if (! [textView superview] || [statusView window] != [textView window])
-					return (id)nil;
-
-				const char *modestr = "";
-				if (document.busy) {
-					modestr = "--BUSY--";
-				} else if (textView.mode == ViInsertMode) {
-					if (document.snippet)
-						modestr = "--SNIPPET--";
-					else
-						modestr = "--INSERT--";
-				} else if (textView.mode == ViVisualMode) {
-					if (textView.visual_line_mode)
-						modestr = "--VISUAL LINE--";
-					else
-						modestr = "--VISUAL--";
-				}
-
-				return (id)[NSString stringWithFormat:@"    %s", modestr];
-			}];
-
-		[messageView setStatusComponents:[NSArray arrayWithObjects:caretLabel, modeLabel, nil]];
-	}
-
-	[[NSNotificationCenter defaultCenter] postNotificationName:ViWindowDidLoad object:self];
-}
 
 - (id)windowWillReturnFieldEditor:(NSWindow *)sender toObject:(id)anObject
 {
@@ -701,10 +1180,9 @@ DEBUG_FINALIZE();
 	if (nmodified > 1) {
 		[alert addButtonWithTitle:@"Keep all"];
 	}
-	[alert beginSheetModalForWindow:[self window]
-			  modalDelegate:self
-			 didEndSelector:@selector(documentChangedAlertDidEnd:returnCode:contextInfo:)
-			    contextInfo:(__bridge void *)(document)];
+	[alert beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse returnCode) {
+		[self documentChangedAlertDidEnd:alert returnCode:returnCode contextInfo:(__bridge void *)(document)];
+	}];
 }
 
 - (void)revertAllModified
@@ -718,10 +1196,9 @@ DEBUG_FINALIZE();
 					  error:&error];
 		if (error) {
 			NSAlert *revertAlert = [NSAlert alertWithError:error];
-			[revertAlert beginSheetModalForWindow:[self window]
-						modalDelegate:self
-					       didEndSelector:@selector(revertFailedAlertDidEnd:returnCode:contextInfo:)
-						  contextInfo:(void *)(intptr_t)1];
+			[revertAlert beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse returnCode) {
+				[self revertFailedAlertDidEnd:revertAlert returnCode:returnCode contextInfo:(void *)(intptr_t)1];
+			}];
 			[document updateChangeCount:NSChangeReadOtherContents];
 			break;
 		}
@@ -777,10 +1254,9 @@ DEBUG_FINALIZE();
 					  error:&error];
 		if (error) {
 			NSAlert *revertAlert = [NSAlert alertWithError:error];
-			[revertAlert beginSheetModalForWindow:[self window]
-					        modalDelegate:self
-					       didEndSelector:@selector(revertFailedAlertDidEnd:returnCode:contextInfo:)
-						  contextInfo:(void *)(intptr_t)0];
+			[revertAlert beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse returnCode) {
+				[self revertFailedAlertDidEnd:revertAlert returnCode:returnCode contextInfo:(void *)(intptr_t)0];
+			}];
 			[document updateChangeCount:NSChangeReadOtherContents];
 		} else {
 			[self alertModifiedDocuments];
@@ -850,10 +1326,9 @@ DEBUG_FINALIZE();
 				ndeleted, pluralS]];
 		}
 		[alert setInformativeText:[NSString stringWithFormat:@"The document%s remain%s open.", pluralS, ndeleted == 1 ? "s" : ""]];
-		[alert beginSheetModalForWindow:[self window]
-				  modalDelegate:self
-				 didEndSelector:@selector(documentsDeletedAlertDidEnd:returnCode:contextInfo:)
-				    contextInfo:nil];
+		[alert beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse returnCode) {
+			[self documentsDeletedAlertDidEnd:alert returnCode:returnCode contextInfo:nil];
+		}];
 	} else {
 		[self alertModifiedDocuments];
 	}
@@ -1116,10 +1591,11 @@ DEBUG_FINALIZE();
 	DEBUG(@"returning previously active document (currently %@) (%s be visible)",
 	    [self currentDocument], mustBeVisible ? "MUST" : "must NOT");
 	__block ViDocument *found = nil;
+	NSMutableSet *docs = _documents;
 	[_jumpList enumerateJumpsBackwardsUsingBlock:^(ViMark *jump, BOOL *stop) {
 		DEBUG(@"got jump %@", jump);
 		ViDocument *doc = jump.document;
-		if (doc && doc != [self currentDocument] && [_documents containsObject:doc] &&
+		if (doc && doc != [self currentDocument] && [docs containsObject:doc] &&
 		    (!mustBeVisible || [[doc views] count] > 0)) {
 			found = doc;
 			*stop = YES;
@@ -1705,16 +2181,21 @@ DEBUG_FINALIZE();
 				return NO;
 			}
 
-			NSError *error = nil;
 			ViDocumentController *ctrl = [NSDocumentController sharedDocumentController];
-			doc = [ctrl openDocumentWithContentsOfURL:mark.url
-							  display:NO
-							    error:&error];
-			if (error) {
-				[NSApp presentError:error];
-				_jumping = NO;
-				return NO;
-			}
+			[ctrl openDocumentWithContentsOfURL:mark.url display:NO completionHandler:^(NSDocument *document, BOOL wasOpen, NSError *error) {
+				if (error) {
+					[NSApp presentError:error];
+					self->_jumping = NO;
+					return;
+				}
+				ViDocument *openedDoc = (ViDocument *)document;
+				ViViewController *vc = [self displayDocument:openedDoc positioned:viewPosition];
+				if (self->_jumping)
+					[self updateJumplistNavigator];
+				self->_jumping = NO;
+				[(ViTextView *)[vc innerView] gotoMark:mark];
+			}];
+			return YES;
 		}
 
 		viewController = [self displayDocument:doc positioned:viewPosition];
@@ -1995,12 +2476,23 @@ extern BOOL __makeNewWindowInsteadOfTab;
 					    error:&err];
 		if (url && !err) {
 			doc = [ctrl documentForURL:url];
-			if (doc)
+			if (doc) {
 				newDoc = NO;
-			else
-				doc = [ctrl openDocumentWithContentsOfURL:filenameOrURL
-								  display:NO
-								    error:&err];
+			} else {
+				/* Async document open — finish in completion handler */
+				[ctrl openDocumentWithContentsOfURL:filenameOrURL display:NO completionHandler:^(NSDocument *document, BOOL wasOpen, NSError *error) {
+					if (error) {
+						[self message:@"%@", [error localizedDescription]];
+						return;
+					}
+					if (document) {
+						ViDocument *openedDoc = (ViDocument *)document;
+						[self displayDocument:openedDoc
+							   positioned:isVertical ? ViViewPositionSplitVertical : ViViewPositionSplitHorizontal];
+					}
+				}];
+				return nil;
+			}
 		}
 	} else if (doc == nil) {
 		doc = [ctrl openUntitledDocumentAndDisplay:NO error:&err];
@@ -2106,16 +2598,6 @@ constrainMaxCoordinate:(CGFloat)proposedMax
 		return IMAX(proposedMax - 100, 0);
 	} else
 		return proposedMax;
-}
-
-- (BOOL)splitView:(NSSplitView *)sender
-shouldCollapseSubview:(NSView *)subview
-forDoubleClickOnDividerAtIndex:(NSInteger)dividerIndex
-{
-	// collapse both side views, but not the main view
-	if (subview == explorerView || subview == symbolsView)
-		return YES;
-	return NO;
 }
 
 - (BOOL)splitView:(NSSplitView *)splitView shouldAdjustSizeOfSubview:(NSView *)subview
@@ -2503,6 +2985,7 @@ additionalEffectiveRectOfDividerAtIndex:(NSInteger)dividerIndex
 	NSString *path = command.arg ?: @"~";
 	__block NSError *retError = nil;
 	__block BOOL sync = YES;
+	ViFileExplorer *fileExplorer = explorer;
 	[self checkBaseURL:[self parseExFilename:path] onCompletion:^(NSURL *url, NSError *error) {
 		retError = error;
 		if (url && !error) {
@@ -2511,7 +2994,7 @@ additionalEffectiveRectOfDividerAtIndex:(NSInteger)dividerIndex
 				[self ex_pwd:command];
 			else
 				[self message:@"%@", [self displayBaseURL]];
-			[explorer browseURL:url andDisplay:NO];
+			[fileExplorer browseURL:url andDisplay:NO];
 		}
 	}];
 	sync = NO;
@@ -2535,8 +3018,6 @@ additionalEffectiveRectOfDividerAtIndex:(NSInteger)dividerIndex
 - (id)ex_edit:(ExCommand *)command
 {
 	ViDocumentController *docController = [ViDocumentController sharedDocumentController];
-	NSError *error = nil;
-	ViViewController *viewController = nil;
 
 	if (command.arg == nil) {
 		/* Re-open current file if force flag specified (:e!). */
@@ -2544,117 +3025,134 @@ additionalEffectiveRectOfDividerAtIndex:(NSInteger)dividerIndex
 			ViDocument *doc = [self currentDocument];
 			[doc revertDocumentToSaved:nil];
 		}
-	} else {
-		NSURL *url = [self parseExFilename:command.arg];
-		if (url) {
-			ViDocument *doc;
-			doc = [docController openDocumentWithContentsOfURL:url
-								   display:NO
-								     error:&error];
-			if (doc) {
-				if ([doc isKindOfClass:[ViProject class]]) {
-					ViTabController *tabController = [self selectedTabController];
-					if ([tabView numberOfTabViewItems] <= 1 &&
-					    [[tabController views] count] <= 1 &&
-					    [_documents count] <= 1 &&
-					    [[_documents anyObject] fileURL] == nil &&
-					    ![[_documents anyObject] isDocumentEdited]) {
-						/* Switch projects */
-						ViProject *project = (ViProject *)doc;
+		return nil;
+	}
 
-						[self.project close];
+	NSURL *url = [self parseExFilename:command.arg];
+	if (url == nil)
+		return nil;
 
-						[self setBaseURL:url];
-						[self ex_pwd:command];
+	NSTabView *theTabView = tabView;
+	NSMutableSet *docs = _documents;
+	[docController openDocumentWithContentsOfURL:url display:NO completionHandler:^(NSDocument *document, BOOL wasOpen, NSError *error) {
+		if (error) {
+			[self message:@"%@", [error localizedDescription]];
+			return;
+		}
+		ViDocument *doc = (ViDocument *)document;
+		if (doc == nil)
+			return;
 
-						NSTabViewItem *existingTab = [[self tabView] selectedTabViewItem];
-						BOOL createdTabs = [project showInWindow:self];
+		if ([doc isKindOfClass:[ViProject class]]) {
+			ViTabController *tabController = [self selectedTabController];
+			if ([theTabView numberOfTabViewItems] <= 1 &&
+			    [[tabController views] count] <= 1 &&
+			    [docs count] <= 1 &&
+			    [[docs anyObject] fileURL] == nil &&
+			    ![[docs anyObject] isDocumentEdited]) {
+				/* Switch projects */
+				ViProject *project = (ViProject *)doc;
 
-						if (createdTabs) {
-							[[self tabView] removeTabViewItem:existingTab];
-						}
-					} else {
-						[[doc nextRunloop] makeWindowControllers];
-					}
-				} else {
-					viewController = [self displayDocument:doc positioned:ViViewPositionReplace];
+				[self.project close];
+
+				[self setBaseURL:url];
+				[self ex_pwd:command];
+
+				NSTabViewItem *existingTab = [[self tabView] selectedTabViewItem];
+				BOOL createdTabs = [project showInWindow:self];
+
+				if (createdTabs) {
+					[[self tabView] removeTabViewItem:existingTab];
 				}
+			} else {
+				[[doc nextRunloop] makeWindowControllers];
+			}
+		} else {
+			ViViewController *viewController = [self displayDocument:doc positioned:ViViewPositionReplace];
+			if (command.plus_command && viewController) {
+				ViTextView *text = (ViTextView *)[viewController innerView];
+				[text evalExString:command.plus_command];
 			}
 		}
-	}
+	}];
 
-	if (error == nil && command.plus_command && viewController) {
-		ViTextView *text = (ViTextView *)[viewController innerView];
-		if (![text evalExString:command.plus_command])
-			return [NSNumber numberWithBool:NO];
-	}
-
-	return error;
+	return nil;
 }
 
 - (id)ex_tabedit:(ExCommand *)command
 {
-	ViDocument *doc = nil;
-	NSError *error = nil;
 	ViDocumentController *docController = [ViDocumentController sharedDocumentController];
 
 	if (command.arg == nil) {
-		doc = [docController openUntitledDocumentAndDisplay:NO
-							      error:&error];
-		if (doc)
+		NSError *error = nil;
+		ViDocument *doc = [docController openUntitledDocumentAndDisplay:NO
+								         error:&error];
+		if (doc) {
 			doc.isTemporary = YES;
-	} else {
-		NSURL *url = [self parseExFilename:command.arg];
-		if (url)
-			doc = [docController openDocumentWithContentsOfURL:url
-								   display:NO
-								     error:&error];
+			[self displayDocument:doc positioned:ViViewPositionTab];
+		}
+		return error;
 	}
 
-	if (doc) {
+	NSURL *url = [self parseExFilename:command.arg];
+	if (url == nil)
+		return nil;
+
+	[docController openDocumentWithContentsOfURL:url display:NO completionHandler:^(NSDocument *document, BOOL wasOpen, NSError *error) {
+		if (error) {
+			[self message:@"%@", [error localizedDescription]];
+			return;
+		}
+		ViDocument *doc = (ViDocument *)document;
+		if (doc == nil)
+			return;
+
 		if ([doc isKindOfClass:[ViProject class]]) {
 			[[doc nextRunloop] makeWindowControllers];
 		} else {
 			ViDocumentView *docView = [self displayDocument:doc positioned:ViViewPositionTab];
 			if (command.plus_command && docView) {
 				ViTextView *text = (ViTextView *)[docView innerView];
-				if (![text evalExString:command.plus_command])
-					return [NSNumber numberWithBool:NO];
+				[text evalExString:command.plus_command];
 			}
 		}
-	}
+	}];
 
-	return error;
+	return nil;
 }
 
 // FIXME: new, vnew, split and vsplit can all take a +excommand argument
 
 - (id)ex_new:(ExCommand *)command
 {
-	return [self splitVertically:NO
-                             andOpen:[self parseExFilename:command.arg]
-                  orSwitchToDocument:nil] ? nil : [NSNumber numberWithBool:NO];
+	[self splitVertically:NO
+		       andOpen:[self parseExFilename:command.arg]
+	    orSwitchToDocument:nil];
+	return nil;
 }
 
 - (id)ex_vnew:(ExCommand *)command
 {
-	return [self splitVertically:YES
-                             andOpen:[self parseExFilename:command.arg]
-                  orSwitchToDocument:nil] ? nil : [NSNumber numberWithBool:NO];
+	[self splitVertically:YES
+		       andOpen:[self parseExFilename:command.arg]
+	    orSwitchToDocument:nil];
+	return nil;
 }
 
 - (id)ex_split:(ExCommand *)command
 {
-	return [self splitVertically:NO
-                             andOpen:[self parseExFilename:command.arg]
-                  orSwitchToDocument:[self currentDocument]] ? nil : [NSNumber numberWithBool:NO];
+	[self splitVertically:NO
+		       andOpen:[self parseExFilename:command.arg]
+	    orSwitchToDocument:[self currentDocument]];
+	return nil;
 }
 
 - (id)ex_vsplit:(ExCommand *)command
 {
-	return [self splitVertically:YES
-                             andOpen:[self parseExFilename:command.arg]
-                  orSwitchToDocument:[self currentDocument]] ? nil : [NSNumber numberWithBool:NO];
+	[self splitVertically:YES
+		       andOpen:[self parseExFilename:command.arg]
+	    orSwitchToDocument:[self currentDocument]];
+	return nil;
 }
 
 - (id)ex_buffer:(ExCommand *)command
@@ -2824,7 +3322,7 @@ additionalEffectiveRectOfDividerAtIndex:(NSInteger)dividerIndex
 		if (qmark != NSNotFound) {
 			if ([booleans containsObject:defaults_name]) {
 				NSInteger val = [[NSUserDefaults standardUserDefaults] integerForKey:defaults_name];
-				[command message:[NSString stringWithFormat:@"%@%@", val == NSOffState ? @"no" : @"", defaults_name]];
+				[command message:[NSString stringWithFormat:@"%@%@", val == NSControlStateValueOff ? @"no" : @"", defaults_name]];
 			} else {
 				NSString *val = [[NSUserDefaults standardUserDefaults] stringForKey:defaults_name];
 				[command message:[NSString stringWithFormat:@"%@=%@", defaults_name, val]];
@@ -2838,7 +3336,7 @@ additionalEffectiveRectOfDividerAtIndex:(NSInteger)dividerIndex
 
 			if (toggle)
 				turnoff = [[NSUserDefaults standardUserDefaults] boolForKey:defaults_name];
-			[[NSUserDefaults standardUserDefaults] setInteger:turnoff ? NSOffState : NSOnState forKey:defaults_name];
+			[[NSUserDefaults standardUserDefaults] setInteger:turnoff ? NSControlStateValueOff : NSControlStateValueOn forKey:defaults_name];
 		} else {
 			if (equals == NSNotFound) {
 				NSString *val = [[NSUserDefaults standardUserDefaults] stringForKey:defaults_name];

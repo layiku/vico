@@ -83,9 +83,9 @@
 
 - (id)init
 {
-	self = [super initWithNibName:@"BundlePrefs"
-				 name:@"Bundles"
-				 icon:[NSImage imageNamed:NSImageNameNetwork]];
+	self = [super initWithNib:nil
+			     name:@"Bundles"
+			     icon:[NSImage imageNamed:NSImageNameNetwork]];
 	if (self == nil)
 		return nil;
 
@@ -93,12 +93,20 @@
 	_repoNameRx = [[ViRegexp alloc] initWithString:@"(\\W*(tm|textmate|vico)\\W*bundle)$"
 					       options:ONIG_OPTION_IGNORECASE];
 
+	_session = [NSURLSession sessionWithConfiguration:[NSURLSessionConfiguration defaultSessionConfiguration]
+	                                         delegate:self
+	                                    delegateQueue:[NSOperationQueue mainQueue]];
+
 	/* Show an icon in the status column of the repository table. */
 	[NSValueTransformer setValueTransformer:[[statusIconTransformer alloc] init]
 					forName:@"statusIconTransformer"];
 
 	[NSValueTransformer setValueTransformer:[[repoUserTransformer alloc] init]
 					forName:@"repoUserTransformer"];
+
+	[self buildView];
+	[self buildSelectRepoSheet];
+	[self buildProgressSheet];
 
 	/* Sort repositories by installed status, then by name. */
 	NSSortDescriptor *statusSort = [[NSSortDescriptor alloc] initWithKey:@"status"
@@ -115,6 +123,267 @@
 	[bundlesTable setTarget:self];
 
 	return self;
+}
+
+- (void)buildView
+{
+	NSUserDefaultsController *udc = [NSUserDefaultsController sharedUserDefaultsController];
+
+	// Root view (480×461)
+	view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 480, 461)];
+
+	// Info text at top {17, 407, 446, 34}
+	NSTextField *infoText = [[NSTextField alloc] initWithFrame:NSMakeRect(17, 407, 446, 34)];
+	[infoText setStringValue:@"You can extend Vico with support for new languages, snippets and commands by installing bundles directly from GitHub."];
+	[infoText setEditable:NO];
+	[infoText setBordered:NO];
+	[infoText setDrawsBackground:NO];
+	[infoText setFont:[NSFont systemFontOfSize:13.0]];
+	[view addSubview:infoText];
+
+	// --- NSArrayController for bundles ---
+	bundlesController = [[NSArrayController alloc] init];
+	[bundlesController setPreservesSelection:YES];
+	[bundlesController setSelectsInsertedObjects:YES];
+	[bundlesController setClearsFilterPredicateOnInsertion:YES];
+	[bundlesController bind:@"contentArray"
+		       toObject:self
+		    withKeyPath:@"filteredRepositories"
+			options:nil];
+
+	// --- NSArrayController for repo users ---
+	repoUsersController = [[NSArrayController alloc] init];
+	[repoUsersController setPreservesSelection:YES];
+	[repoUsersController setSelectsInsertedObjects:YES];
+	[repoUsersController setClearsFilterPredicateOnInsertion:YES];
+	[repoUsersController bind:@"contentArray"
+			 toObject:udc
+		      withKeyPath:@"values.bundleRepoUsers"
+			  options:@{
+				NSValueTransformerNameBindingOption: @"repoUserTransformer",
+				@"NSHandlesContentAsCompoundValue": @YES
+			  }];
+
+	// --- Bundles table in scroll view at {20, 72, 440, 322} ---
+	NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 72, 440, 322)];
+	[scrollView setHasVerticalScroller:YES];
+	[scrollView setHasHorizontalScroller:NO];
+	[scrollView setBorderType:NSBezelBorder];
+	[scrollView setAutohidesScrollers:YES];
+	bundlesTable = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 438, 304)];
+	[bundlesTable setAutosaveName:@"BundlesTable"];
+	[bundlesTable setRowHeight:14];
+	[bundlesTable setIntercellSpacing:NSMakeSize(3, 2)];
+	[bundlesTable setAllowsColumnReordering:YES];
+	[bundlesTable setAllowsColumnResizing:YES];
+	[bundlesTable setAllowsMultipleSelection:YES];
+
+	// Status column (16px, image cell)
+	NSTableColumn *statusCol = [[NSTableColumn alloc] initWithIdentifier:@"StatusColumn"];
+	[statusCol setWidth:16];
+	[statusCol setMinWidth:16];
+	[statusCol setMaxWidth:16];
+	[[statusCol headerCell] setStringValue:@""];
+	NSImageCell *statusCell = [[NSImageCell alloc] init];
+	[statusCol setDataCell:statusCell];
+	[statusCol bind:@"value"
+		toObject:bundlesController
+	     withKeyPath:@"arrangedObjects.status"
+		 options:@{NSValueTransformerNameBindingOption: @"statusIconTransformer"}];
+	[statusCol setSortDescriptorPrototype:[[NSSortDescriptor alloc] initWithKey:@"status" ascending:YES selector:@selector(compare:)]];
+	[bundlesTable addTableColumn:statusCol];
+
+	// Name column (134px)
+	NSTableColumn *nameCol = [[NSTableColumn alloc] initWithIdentifier:@"NameColumn"];
+	[nameCol setWidth:134];
+	[nameCol setMinWidth:40];
+	[[nameCol headerCell] setStringValue:@"Name"];
+	[nameCol bind:@"value"
+		toObject:bundlesController
+	     withKeyPath:@"arrangedObjects.displayName"
+		 options:nil];
+	[nameCol setSortDescriptorPrototype:[[NSSortDescriptor alloc] initWithKey:@"displayName" ascending:YES selector:@selector(compare:)]];
+	[bundlesTable addTableColumn:nameCol];
+
+	// User column (78px)
+	NSTableColumn *userCol = [[NSTableColumn alloc] initWithIdentifier:@"UserColumn"];
+	[userCol setWidth:78];
+	[userCol setMinWidth:10];
+	[[userCol headerCell] setStringValue:@"User"];
+	[userCol bind:@"value"
+		toObject:bundlesController
+	     withKeyPath:@"arrangedObjects.owner.login"
+		 options:nil];
+	[bundlesTable addTableColumn:userCol];
+
+	// Description column (198px)
+	NSTableColumn *descCol = [[NSTableColumn alloc] initWithIdentifier:@"DescriptionColumn"];
+	[descCol setWidth:198];
+	[descCol setMinWidth:10];
+	[[descCol headerCell] setStringValue:@"Description"];
+	[descCol bind:@"value"
+		toObject:bundlesController
+	     withKeyPath:@"arrangedObjects.description"
+		 options:nil];
+	[bundlesTable addTableColumn:descCol];
+
+	[scrollView setDocumentView:bundlesTable];
+	[view addSubview:scrollView];
+
+	// --- Bottom controls ---
+
+	// Bundles info label at {17, 50, 446, 14}
+	bundlesInfo = [[NSTextField alloc] initWithFrame:NSMakeRect(17, 50, 446, 14)];
+	[bundlesInfo setEditable:NO];
+	[bundlesInfo setBordered:NO];
+	[bundlesInfo setDrawsBackground:NO];
+	[bundlesInfo setFont:[NSFont systemFontOfSize:11.0]];
+	[view addSubview:bundlesInfo];
+
+	// Install (+) button at {20, 20, 23, 23}
+	NSButton *installButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 20, 23, 23)];
+	[installButton setImage:[NSImage imageNamed:NSImageNameAddTemplate]];
+	[installButton setBezelStyle:NSBezelStyleSmallSquare];
+	[installButton setBordered:YES];
+	[installButton setTarget:self];
+	[installButton setAction:@selector(installBundles:)];
+	[view addSubview:installButton];
+
+	// Uninstall (-) button at {42, 20, 23, 23}
+	NSButton *uninstallButton = [[NSButton alloc] initWithFrame:NSMakeRect(42, 20, 23, 23)];
+	[uninstallButton setImage:[NSImage imageNamed:NSImageNameRemoveTemplate]];
+	[uninstallButton setBezelStyle:NSBezelStyleSmallSquare];
+	[uninstallButton setBordered:YES];
+	[uninstallButton setTarget:self];
+	[uninstallButton setAction:@selector(uninstallBundles:)];
+	[view addSubview:uninstallButton];
+
+	// Action popup at {70, 20, 37, 23}
+	NSPopUpButton *actionPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(70, 20, 37, 23) pullsDown:YES];
+	[actionPopup setBezelStyle:NSBezelStyleSmallSquare];
+	[actionPopup setBordered:YES];
+	[[actionPopup cell] setArrowPosition:NSPopUpArrowAtCenter];
+	[actionPopup addItemWithTitle:@""];
+	[actionPopup addItemWithTitle:@"Reload from GitHub"];
+	[[actionPopup lastItem] setTarget:self];
+	[[actionPopup lastItem] setAction:@selector(reloadRepositories:)];
+	[actionPopup addItemWithTitle:@"Select repositories..."];
+	[[actionPopup lastItem] setTarget:self];
+	[[actionPopup lastItem] setAction:@selector(selectRepositories:)];
+	[view addSubview:actionPopup];
+
+	// Filter search field at {115, 20, 164, 22}
+	repoFilterField = [[NSSearchField alloc] initWithFrame:NSMakeRect(115, 20, 164, 22)];
+	[repoFilterField setTarget:self];
+	[repoFilterField setAction:@selector(filterRepositories:)];
+	[[repoFilterField cell] setPlaceholderString:@"Filter"];
+	[view addSubview:repoFilterField];
+}
+
+- (void)buildSelectRepoSheet
+{
+	// Sheet window (441×201)
+	selectRepoSheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 441, 201)
+						      styleMask:NSWindowStyleMaskTitled
+							backing:NSBackingStoreBuffered
+							  defer:YES];
+	NSView *sheetContent = [selectRepoSheet contentView];
+
+	// Info text at {17, 153, 407, 28}
+	NSTextField *infoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(17, 153, 407, 28)];
+	[infoLabel setStringValue:@"You can manage what bundles are listed by selecting GitHub users. Only repositories with the string 'tmbundle' in the name are available."];
+	[infoLabel setEditable:NO];
+	[infoLabel setBordered:NO];
+	[infoLabel setDrawsBackground:NO];
+	[infoLabel setFont:[NSFont systemFontOfSize:11.0]];
+	[sheetContent addSubview:infoLabel];
+
+	// Repo users table in scroll view at {20, 47, 401, 98}
+	NSScrollView *repoScroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 47, 401, 98)];
+	[repoScroll setHasVerticalScroller:YES];
+	[repoScroll setHasHorizontalScroller:NO];
+	[repoScroll setBorderType:NSBezelBorder];
+	[repoScroll setAutohidesScrollers:YES];
+
+	repoUsersTable = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 399, 96)];
+	[repoUsersTable setRowHeight:14];
+	[repoUsersTable setIntercellSpacing:NSMakeSize(3, 2)];
+
+	NSTableColumn *usernameCol = [[NSTableColumn alloc] initWithIdentifier:@"username"];
+	[usernameCol setWidth:396];
+	[usernameCol setMinWidth:40];
+	[usernameCol setEditable:YES];
+	[[usernameCol headerCell] setStringValue:@""];
+	[usernameCol bind:@"value"
+		 toObject:repoUsersController
+	      withKeyPath:@"arrangedObjects.username"
+		  options:nil];
+	[repoUsersTable addTableColumn:usernameCol];
+	[repoScroll setDocumentView:repoUsersTable];
+	[sheetContent addSubview:repoScroll];
+
+	// Add (+) button at {20, 19, 21, 21}
+	NSButton *addButton = [[NSButton alloc] initWithFrame:NSMakeRect(20, 19, 21, 21)];
+	[addButton setImage:[NSImage imageNamed:NSImageNameAddTemplate]];
+	[addButton setBezelStyle:NSBezelStyleSmallSquare];
+	[addButton setBordered:YES];
+	[addButton setTarget:self];
+	[addButton setAction:@selector(addRepoUser:)];
+	[sheetContent addSubview:addButton];
+
+	// Remove (-) button at {40, 19, 21, 21}
+	NSButton *removeButton = [[NSButton alloc] initWithFrame:NSMakeRect(40, 19, 21, 21)];
+	[removeButton setImage:[NSImage imageNamed:NSImageNameRemoveTemplate]];
+	[removeButton setBezelStyle:NSBezelStyleSmallSquare];
+	[removeButton setBordered:YES];
+	[removeButton setTarget:repoUsersController];
+	[removeButton setAction:@selector(remove:)];
+	[removeButton bind:@"enabled"
+		  toObject:repoUsersController
+	       withKeyPath:@"selection"
+		   options:@{NSValueTransformerNameBindingOption: NSIsNotNilTransformerName}];
+	[sheetContent addSubview:removeButton];
+
+	// Done button at {355, 14, 71, 28}
+	NSButton *doneButton = [[NSButton alloc] initWithFrame:NSMakeRect(355, 14, 71, 28)];
+	[doneButton setTitle:@"Done"];
+	[doneButton setBezelStyle:NSBezelStyleRounded];
+	[doneButton setTarget:self];
+	[doneButton setAction:@selector(acceptSelectRepoSheet:)];
+	[doneButton setKeyEquivalent:@"\r"];
+	[sheetContent addSubview:doneButton];
+}
+
+- (void)buildProgressSheet
+{
+	// Progress sheet window (441×93)
+	progressSheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 441, 93)
+						    styleMask:NSWindowStyleMaskTitled
+						      backing:NSBackingStoreBuffered
+							defer:YES];
+	NSView *sheetContent = [progressSheet contentView];
+
+	// Status description at {17, 45, 407, 28}
+	progressDescription = [[NSTextField alloc] initWithFrame:NSMakeRect(17, 45, 407, 28)];
+	[progressDescription setEditable:NO];
+	[progressDescription setBordered:NO];
+	[progressDescription setDrawsBackground:NO];
+	[progressDescription setFont:[NSFont systemFontOfSize:11.0]];
+	[sheetContent addSubview:progressDescription];
+
+	// Progress indicator at {19, 22, 309, 12}
+	progressIndicator = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(19, 22, 309, 12)];
+	[progressIndicator setIndeterminate:YES];
+	[progressIndicator setMaxValue:100];
+	[sheetContent addSubview:progressIndicator];
+
+	// Cancel button at {330, 13, 96, 28}
+	progressButton = [[NSButton alloc] initWithFrame:NSMakeRect(330, 13, 96, 28)];
+	[progressButton setTitle:@"Cancel"];
+	[progressButton setBezelStyle:NSBezelStyleRounded];
+	[progressButton setTarget:self];
+	[progressButton setAction:@selector(cancelProgressSheet:)];
+	[sheetContent addSubview:progressButton];
 }
 
 
@@ -276,11 +545,9 @@
 {
 	_previousRepoUsers = [[repoUsersController arrangedObjects] copy];
 
-	[NSApp beginSheet:selectRepoSheet
-	   modalForWindow:[view window]
-	    modalDelegate:self
-	   didEndSelector:@selector(selectRepoSheetDidEnd:returnCode:contextInfo:)
-	      contextInfo:nil];
+	[[view window] beginSheet:selectRepoSheet completionHandler:^(NSModalResponse returnCode) {
+        [self selectRepoSheetDidEnd:self->selectRepoSheet returnCode:(int)returnCode contextInfo:nil];
+	}];
 }
 
 - (IBAction)addRepoUser:(id)sender
@@ -318,10 +585,9 @@
 	[progressIndicator setIndeterminate:YES];
 	[progressIndicator startAnimation:self];
 
-	_installConnection = nil;
+	_downloadTask = nil;
 
-	_repoConnection = nil;
-	_repoData = nil;
+	_repoTask = nil;
 }
 
 - (IBAction)cancelProgressSheet:(id)sender
@@ -332,17 +598,17 @@
 	}
 
 	/* This action is connected to both repo downloads and bundle installation. */
-	if (_installConnection) {
-		[_installConnection cancel];
+	if (_downloadTask) {
+		[_downloadTask cancel];
 		[_installTask terminate];
-		_installConnection = nil;
+		_downloadTask = nil;
 		_installTask = nil;
-	} else if (_userConnection) {
-		[_userConnection cancel];
-		_userConnection = nil;
+	} else if (_userTask) {
+		[_userTask cancel];
+		_userTask = nil;
 	} else {
-		[_repoConnection cancel];
-		_repoConnection = nil;
+		[_repoTask cancel];
+		_repoTask = nil;
 	}
 
 	_progressCancelled = YES;
@@ -368,11 +634,43 @@
 	[progressDescription setStringValue:[NSString stringWithFormat:@"Loading user %@...", username]];
 	NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"https://api.github.com/users/%@", username]];
 
-	_userConnection = [[NSURLConnection alloc] initWithRequest:[NSURLRequest requestWithURL:url] delegate:self];
-
-	_userData = [[NSMutableData alloc] init];
-
-	_installConnection = nil;
+	_userTask = [_session dataTaskWithRequest:[NSURLRequest requestWithURL:url]
+	                       completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+		if (error) {
+			if (error.code == NSURLErrorCancelled) return;
+			NSMutableDictionary *repo = [self->_processQueue lastObject];
+			[self->progressDescription setStringValue:[NSString stringWithFormat:@"Download of %@ failed: %@",
+			    [repo objectForKey:@"username"], [error localizedDescription]]];
+			[self cancelProgressSheet:nil];
+			return;
+		}
+		NSMutableDictionary *repo = [self->_processQueue lastObject];
+		NSString *username = [repo objectForKey:@"username"];
+		NSString *jsonString = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+		SBJsonParser *parser = [[SBJsonParser alloc] init];
+		NSDictionary *dict = [parser objectWithString:jsonString];
+		if (![dict isKindOfClass:[NSDictionary class]]) {
+			[self cancelProgressSheet:nil];
+			[self->progressDescription setStringValue:[NSString stringWithFormat:@"Failed to parse data for user %@.", username]];
+			return;
+		}
+		DEBUG(@"got user %@: %@", username, dict);
+		[self->progressDescription setStringValue:[NSString stringWithFormat:@"Loading repositories from %@...", username]];
+		NSString *type = [dict objectForKey:@"type"];
+		if ([type isEqualToString:@"User"])
+			self->_repoURL = [NSURL URLWithString:[NSString stringWithFormat:@"https://api.github.com/users/%@/repos", username]];
+		else if ([type isEqualToString:@"Organization"])
+			self->_repoURL = [NSURL URLWithString:[NSString stringWithFormat:@"https://api.github.com/orgs/%@/repos", username]];
+		else {
+			[self cancelProgressSheet:nil];
+			[self->progressDescription setStringValue:[NSString stringWithFormat:@"Unknown type %@ of user %@", type, username]];
+			return;
+		}
+		self->_repoPage = 1;
+		self->_repoJson = [NSMutableArray new];
+		[self startRepoTask];
+	}];
+	[_userTask resume];
 }
 
 - (void)reloadRepositoriesFromUsers:(NSArray *)users
@@ -381,11 +679,9 @@
 		return;
 
 	[progressDescription setStringValue:@"Loading bundle repositories from GitHub..."];
-	[NSApp beginSheet:progressSheet
-	   modalForWindow:[view window]
-	    modalDelegate:self
-	   didEndSelector:@selector(progressSheetDidEnd:returnCode:contextInfo:)
-	      contextInfo:nil];
+	[[view window] beginSheet:progressSheet completionHandler:^(NSModalResponse returnCode) {
+        [self progressSheetDidEnd:self->progressSheet returnCode:(int)returnCode contextInfo:nil];
+	}];
 
 	_processQueue = [[NSMutableArray alloc] initWithArray:users];
 	[self reloadNextUser];
@@ -399,153 +695,157 @@
 #pragma mark -
 #pragma mark Installing bundles from GitHub
 
-- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
+- (void)startRepoTask
 {
-	[self cancelProgressSheet:nil];
-	NSMutableDictionary *repo = [_processQueue lastObject];
-	if (connection == _installConnection) {
-		[progressDescription setStringValue:[NSString stringWithFormat:@"Download of %@ failed: %@", [repo objectForKey:@"displayName"], [error localizedDescription]]];
-		[_installTask terminate];
-		_installTask = nil;
-	} else if (connection == _userConnection) {
-		[progressDescription setStringValue:[NSString stringWithFormat:@"Download of %@ failed: %@", [repo objectForKey:@"username"], [error localizedDescription]]];
-	} else if (connection == _repoConnection) {
-		[self cancelProgressSheet:nil];
-		NSDictionary *repoUser = [_processQueue lastObject];
-		[progressDescription setStringValue:[NSString stringWithFormat:@"Failed to load %@'s repository: %@",
-						     [repoUser objectForKey:@"username"], [error localizedDescription]]];
-	}
-}
-
-- (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
-{
-	_receivedContentLength += [data length];
-	if (connection == _installConnection) {
-		[progressIndicator setDoubleValue:_receivedContentLength];
-		@try {
-			[[_installPipe fileHandleForWriting] writeData:data];
-		}
-		@catch (NSException *exception) {
-			[_installConnection cancel];
-			[_installTask terminate];
-			_installTask = nil;
-
+	_repoTask = [_session dataTaskWithRequest:[NSURLRequest requestWithURL:_repoURL]
+	                       completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+		if (error) {
+			if (error.code == NSURLErrorCancelled) return;
+			NSDictionary *repoUser = [self->_processQueue lastObject];
 			[self cancelProgressSheet:nil];
-			NSMutableDictionary *repo = [_processQueue lastObject];
-			[progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed when unpacking.", [repo objectForKey:@"displayName"]]];
-		}
-	} else if (connection == _userConnection) {
-		[_userData appendData:data];
-	} else if (connection == _repoConnection) {
-		[_repoData appendData:data];
-
-		_receivedContentLength += data.length;
-		[progressIndicator setDoubleValue:_receivedContentLength];
-	}
-}
-
-- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response
-{
-	if (connection == _installConnection)
-		[self setExpectedContentLengthFromResponse:response];
-
-	if (connection == _repoConnection) {
-		[self setExpectedContentLengthFromResponse:response];
-	}
-}
-
-- (void)connectionDidFinishLoading:(NSURLConnection *)connection
-{
-	if (connection == _userConnection) {
-		NSMutableDictionary *repo = [_processQueue lastObject];
-		NSString *username = [repo objectForKey:@"username"];
-
-		NSString *jsonString = [[NSString alloc] initWithData:_userData encoding:NSUTF8StringEncoding];
-		_userData = nil;
-		
-		SBJsonParser *parser = [[SBJsonParser alloc] init];
-		NSDictionary *dict = [parser objectWithString:jsonString];
-		if (![dict isKindOfClass:[NSDictionary class]]) {
-			[self cancelProgressSheet:nil];
-			[progressDescription setStringValue:[NSString stringWithFormat:@"Failed to parse data for user %@.", username]];
+			[self->progressDescription setStringValue:[NSString stringWithFormat:@"Failed to load %@'s repository: %@",
+			    [repoUser objectForKey:@"username"], [error localizedDescription]]];
 			return;
 		}
-
-		DEBUG(@"got user %@: %@", username, dict);
-
-		[progressDescription setStringValue:[NSString stringWithFormat:@"Loading repositories from %@...", username]];
-
-		_repoURL = nil;
-		NSString *type = [dict objectForKey:@"type"];
-		if ([type isEqualToString:@"User"])
-			_repoURL = [NSURL URLWithString:[NSString stringWithFormat:@"https://api.github.com/users/%@/repos", username]];
-		else if ([type isEqualToString:@"Organization"])
-			_repoURL = [NSURL URLWithString:[NSString stringWithFormat:@"https://api.github.com/orgs/%@/repos", username]];
-		else {
-			[self cancelProgressSheet:nil];
-			[progressDescription setStringValue:[NSString stringWithFormat:@"Unknown type %@ of user %@", type, username]];
-			return;
-		}
-		_repoPage = 1;
-
-		DEBUG(@"loading repositories from %@", _repoURL);
-
-		_repoJson = [NSMutableArray new];
-		_repoData = [NSMutableData new];
-		_repoConnection = [[NSURLConnection alloc] initWithRequest:
-				   [NSURLRequest requestWithURL:_repoURL] delegate:self startImmediately:YES];
-		return;
-	}
-
-	if (connection == _repoConnection) {
-		NSString *jsonString = [[NSString alloc] initWithData:_repoData encoding:NSUTF8StringEncoding];
-		
+		NSString *jsonString = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
 		SBJsonParser *parser = [[SBJsonParser alloc] init];
 		NSArray *repoJson = [parser objectWithString:jsonString];
-		[_repoJson addObjectsFromArray:repoJson];
+		[self->_repoJson addObjectsFromArray:repoJson];
 
-		NSDictionary *repoUser = [_processQueue lastObject];
+		NSDictionary *repoUser = [self->_processQueue lastObject];
 		[self loadBundlesFromRepo:[repoUser objectForKey:@"username"]];
 		[[NSUserDefaults standardUserDefaults] setObject:[NSDate date] forKey:@"LastBundleRepoReload"];
 
 		if (repoJson.count == 0) {
-			[_processQueue removeLastObject];
-			if ([_processQueue count] == 0) {
-				[NSApp endSheet:progressSheet];
+			[self->_processQueue removeLastObject];
+			if ([self->_processQueue count] == 0) {
+				[NSApp endSheet:self->progressSheet];
 			} else {
 				[self reloadNextUser];
 			}
 		} else {
-			NSURL *noQueryURL = [[NSURL alloc] initWithScheme:_repoURL.scheme
-								      host:_repoURL.host
-								      path:_repoURL.path];
-			_repoPage++;
-			_repoURL = [NSURL URLWithString:
-				     [NSString stringWithFormat:@"%@?page=%d", noQueryURL.absoluteString, _repoPage]];
-			DEBUG(@"Loading next page of repositories: %@", _repoURL);
-
-			_repoData = [NSMutableData new];
-			_repoConnection = [[NSURLConnection alloc] initWithRequest:[NSURLRequest requestWithURL:_repoURL]
-									  delegate:self startImmediately:YES];
+			NSURLComponents *noQueryComps = [[NSURLComponents alloc] init];
+			noQueryComps.scheme = self->_repoURL.scheme;
+			noQueryComps.host   = self->_repoURL.host;
+			noQueryComps.path   = self->_repoURL.path;
+			NSURL *noQueryURL = noQueryComps.URL;
+			self->_repoPage++;
+			self->_repoURL = [NSURL URLWithString:
+			    [NSString stringWithFormat:@"%@?page=%d", noQueryURL.absoluteString, self->_repoPage]];
+			DEBUG(@"Loading next page of repositories: %@", self->_repoURL);
+			[self startRepoTask];
 		}
+	}];
+	[_repoTask resume];
+}
 
+- (void)URLSession:(NSURLSession *)session
+      downloadTask:(NSURLSessionDownloadTask *)downloadTask
+didFinishDownloadingToURL:(NSURL *)location
+{
+	/* Download completion is handled via the per-task completion block. */
+}
+
+- (void)URLSession:(NSURLSession *)session
+      downloadTask:(NSURLSessionDownloadTask *)downloadTask
+      didWriteData:(int64_t)bytesWritten
+ totalBytesWritten:(int64_t)totalBytesWritten
+totalBytesExpectedToWrite:(int64_t)totalBytesExpectedToWrite
+{
+	if (downloadTask != _downloadTask)
 		return;
+	_receivedContentLength = totalBytesWritten;
+	if (totalBytesExpectedToWrite > 0) {
+		[progressIndicator setIndeterminate:NO];
+		[progressIndicator setMaxValue:totalBytesExpectedToWrite];
+		[progressIndicator setDoubleValue:totalBytesWritten];
 	}
+}
 
-	[[_installPipe fileHandleForWriting] closeFile];
-
-	[_installTask waitUntilExit];
-	int status = [_installTask terminationStatus];
-	[progressIndicator setIndeterminate:YES];
-
+- (void)installNextBundle
+{
 	NSMutableDictionary *repo = [_processQueue lastObject];
 	NSString *owner = [[repo objectForKey:@"owner"] objectForKey:@"login"];
 	NSString *name = [repo objectForKey:@"name"];
 	NSString *displayName = [repo objectForKey:@"displayName"];
 
-	if (status == 0) {
-		NSError *error = nil;
-		NSString *downloadDirectory = [[ViBundleStore bundlesDirectory] stringByAppendingPathComponent:@"download"];
+	[self resetProgressIndicator];
+	[progressDescription setStringValue:[NSString stringWithFormat:@"Downloading and installing %@ (by %@)...",
+	    name, owner]];
+
+	/*
+	 * Move away any existing (temporary) bundle directory.
+	 */
+	NSError *error = nil;
+	NSString *downloadDirectory = [[ViBundleStore bundlesDirectory] stringByAppendingPathComponent:@"download"];
+	if (![[NSFileManager defaultManager] removeItemAtPath:downloadDirectory error:&error] && [error code] != NSFileNoSuchFileError) {
+		[self cancelProgressSheet:nil];
+		[progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: %@",
+		    displayName, [error localizedDescription]]];
+		return;
+	}
+
+	if (![[NSFileManager defaultManager] createDirectoryAtPath:downloadDirectory withIntermediateDirectories:YES attributes:nil error:&error]) {
+		[self cancelProgressSheet:nil];
+		[progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: %@",
+		    displayName, [error localizedDescription]]];
+		return;
+	}
+
+	NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@/tarball/master", [repo objectForKey:@"url"]]];
+
+	_downloadTask = [_session downloadTaskWithRequest:[NSURLRequest requestWithURL:url]
+	                               completionHandler:^(NSURL *location, NSURLResponse *response, NSError *dlError) {
+		if (dlError) {
+			if (dlError.code == NSURLErrorCancelled) return;
+			[self cancelProgressSheet:nil];
+			[self->progressDescription setStringValue:[NSString stringWithFormat:@"Download of %@ failed: %@",
+			    displayName, [dlError localizedDescription]]];
+			return;
+		}
+
+		/* Move temp file to a persistent path before NSURLSession deletes it. */
+		NSString *tempPath = [NSTemporaryDirectory() stringByAppendingPathComponent:
+		    [NSString stringWithFormat:@"vico-bundle-%u.tar.gz", arc4random()]];
+		NSError *moveError = nil;
+		if (![[NSFileManager defaultManager] moveItemAtURL:location
+		                                             toURL:[NSURL fileURLWithPath:tempPath]
+		                                             error:&moveError]) {
+			[self cancelProgressSheet:nil];
+			[self->progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: %@",
+			    displayName, [moveError localizedDescription]]];
+			return;
+		}
+
+		[self->progressIndicator setIndeterminate:YES];
+		self->_installTask = [[NSTask alloc] init];
+		[self->_installTask setLaunchPath:@"/usr/bin/tar"];
+		[self->_installTask setArguments:@[@"-x", @"-C", downloadDirectory, @"-f", tempPath]];
+
+		@try {
+			[self->_installTask launch];
+		}
+		@catch (NSException *exception) {
+			[[NSFileManager defaultManager] removeItemAtPath:tempPath error:nil];
+			[self cancelProgressSheet:nil];
+			[self->progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: %@",
+			    displayName, [exception reason]]];
+			return;
+		}
+
+		[self->_installTask waitUntilExit];
+		int status = [self->_installTask terminationStatus];
+		self->_installTask = nil;
+		[[NSFileManager defaultManager] removeItemAtPath:tempPath error:nil];
+
+		if (status != 0) {
+			[self cancelProgressSheet:nil];
+			[self->progressDescription setStringValue:[NSString stringWithFormat:
+			    @"Installation of %@ failed when unpacking (status %d).", displayName, status]];
+			return;
+		}
+
+		NSError *installError = nil;
 		NSString *prefix = [NSString stringWithFormat:@"%@-%@", owner, name];
 		NSString *bundleDirectory = nil;
 		NSArray *contents = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:downloadDirectory error:NULL];
@@ -558,7 +858,8 @@
 
 		if (bundleDirectory == nil) {
 			[self cancelProgressSheet:nil];
-			[progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: downloaded bundle not found", displayName]];
+			[self->progressDescription setStringValue:[NSString stringWithFormat:
+			    @"Installation of %@ failed: downloaded bundle not found", displayName]];
 			return;
 		}
 
@@ -566,10 +867,11 @@
 		for (NSString *filename in contents) {
 			if ([filename hasPrefix:prefix]) {
 				NSString *path = [[ViBundleStore bundlesDirectory] stringByAppendingPathComponent:filename];
-				if (![[NSFileManager defaultManager] removeItemAtPath:path error:&error]) {
+				if (![[NSFileManager defaultManager] removeItemAtPath:path error:&installError]) {
 					[self cancelProgressSheet:nil];
-					[progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: %@ (%li)",
-					    displayName, [error localizedDescription], [error code]]];
+					[self->progressDescription setStringValue:[NSString stringWithFormat:
+					    @"Installation of %@ failed: %@ (%li)",
+					    displayName, [installError localizedDescription], [installError code]]];
 					return;
 				}
 				break;
@@ -580,77 +882,27 @@
 		 * Move the bundle from the download directory to the bundles directory.
 		 */
 		NSString *src = [downloadDirectory stringByAppendingPathComponent:bundleDirectory];
-		NSString *dst = [[ViBundleStore bundlesDirectory] stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@", owner, name]];
-		if (![[NSFileManager defaultManager] moveItemAtPath:src toPath:dst error:&error])  {
+		NSString *dst = [[ViBundleStore bundlesDirectory] stringByAppendingPathComponent:
+		    [NSString stringWithFormat:@"%@-%@", owner, name]];
+		if (![[NSFileManager defaultManager] moveItemAtPath:src toPath:dst error:&installError]) {
 			[self cancelProgressSheet:nil];
-			[progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: %@",
-			    displayName, [error localizedDescription]]];
+			[self->progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: %@",
+			    displayName, [installError localizedDescription]]];
+			return;
 		}
 
+		NSMutableDictionary *currentRepo = [self->_processQueue lastObject];
 		if ([[ViBundleStore defaultStore] loadBundleFromDirectory:dst])
-			[repo setObject:@"Installed" forKey:@"status"];
+			[currentRepo setObject:@"Installed" forKey:@"status"];
 		[self updateBundleStatus];
-	} else {
-		[self cancelProgressSheet:nil];
-		[progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed when unpacking (status %d).",
-		    displayName, status]];
-		return;
-	}
 
-	[_processQueue removeLastObject];
-	if ([_processQueue count] == 0)
-		[NSApp endSheet:progressSheet];
-	else
-		[self installNextBundle];
-}
-
-- (void)installNextBundle
-{
-	NSMutableDictionary *repo = [_processQueue lastObject];
-
-	[self resetProgressIndicator];
-	[progressDescription setStringValue:[NSString stringWithFormat:@"Downloading and installing %@ (by %@)...",
-	    [repo objectForKey:@"name"], [[repo objectForKey:@"owner"] objectForKey:@"login"]]];
-
-	/*
-	 * Move away any existing (temporary) bundle directory.
-	 */
-	NSError *error = nil;
-	NSString *downloadDirectory = [[ViBundleStore bundlesDirectory] stringByAppendingPathComponent:@"download"];
-	if (![[NSFileManager defaultManager] removeItemAtPath:downloadDirectory error:&error] && [error code] != NSFileNoSuchFileError) {
-		[self cancelProgressSheet:nil];
-		[progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: %@",
-		    [repo objectForKey:@"displayName"], [error localizedDescription]]];
-		return;
-	}
-
-	if (![[NSFileManager defaultManager] createDirectoryAtPath:downloadDirectory withIntermediateDirectories:YES attributes:nil error:&error]) {
-		[self cancelProgressSheet:nil];
-		[progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: %@",
-		    [repo objectForKey:@"displayName"], [error localizedDescription]]];
-		return;
-	}
-
-	_installTask = [[NSTask alloc] init];
-	[_installTask setLaunchPath:@"/usr/bin/tar"];
-	[_installTask setArguments:[NSArray arrayWithObjects:@"-x", @"-C", downloadDirectory, nil]];
-
-	_installPipe = [[NSPipe alloc] init];
-	[_installTask setStandardInput:_installPipe];
-
-	@try {
-		[_installTask launch];
-	}
-	@catch (NSException *exception) {
-		[self cancelProgressSheet:nil];
-		[progressDescription setStringValue:[NSString stringWithFormat:@"Installation of %@ failed: %@",
-		    [repo objectForKey:@"displayName"], [exception reason]]];
-		return;
-	}
-
-	NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"%@/tarball/master", [repo objectForKey:@"url"]]];
-
-	_installConnection = [[NSURLConnection alloc] initWithRequest:[NSURLRequest requestWithURL:url] delegate:self];
+		[self->_processQueue removeLastObject];
+		if ([self->_processQueue count] == 0)
+			[NSApp endSheet:self->progressSheet];
+		else
+			[self installNextBundle];
+	}];
+	[_downloadTask resume];
 }
 
 - (IBAction)installBundles:(id)sender
@@ -659,11 +911,9 @@
 	if ([selectedBundles count] == 0)
 		return;
 
-	[NSApp beginSheet:progressSheet
-	   modalForWindow:[view window]
-	    modalDelegate:self
-	   didEndSelector:@selector(progressSheetDidEnd:returnCode:contextInfo:)
-	      contextInfo:nil];
+	[[view window] beginSheet:progressSheet completionHandler:^(NSModalResponse returnCode) {
+        [self progressSheetDidEnd:self->progressSheet returnCode:(int)returnCode contextInfo:nil];
+	}];
 
 	_processQueue = [[NSMutableArray alloc] initWithArray:selectedBundles];
 	[self installNextBundle];

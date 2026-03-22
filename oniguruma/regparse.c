@@ -342,8 +342,8 @@ extern hash_table_type*
 onig_st_init_strend_table_with_size(int size)
 {
   static struct st_hash_type hashType = {
-    str_end_cmp,
-    str_end_hash,
+    (st_compare_func)str_end_cmp,
+    (st_hash_func)str_end_hash,
   };
 
   return (hash_table_type* )
@@ -432,7 +432,7 @@ onig_print_names(FILE* fp, regex_t* reg)
 
   if (IS_NOT_NULL(t)) {
     fprintf(fp, "name table\n");
-    onig_st_foreach(t, i_print_name_entry, (HashDataType )fp);
+    onig_st_foreach(t, (st_foreach_func)i_print_name_entry, (HashDataType )fp);
     fputs("\n", fp);
   }
   return 0;
@@ -455,7 +455,7 @@ names_clear(regex_t* reg)
   NameTable* t = (NameTable* )reg->name_table;
 
   if (IS_NOT_NULL(t)) {
-    onig_st_foreach(t, i_free_name_entry, 0);
+    onig_st_foreach(t, (st_foreach_func)i_free_name_entry, 0);
   }
   return 0;
 }
@@ -524,7 +524,7 @@ onig_foreach_name(regex_t* reg,
     narg.reg  = reg;
     narg.arg  = arg;
     narg.enc  = reg->enc; /* should be pattern encoding. */
-    onig_st_foreach(t, i_names, (HashDataType )&narg);
+    onig_st_foreach(t, (st_foreach_func)i_names, (HashDataType )&narg);
   }
   return narg.ret;
 }
@@ -552,7 +552,7 @@ onig_renumber_name_table(regex_t* reg, GroupNumRemap* map)
   NameTable* t = (NameTable* )reg->name_table;
 
   if (IS_NOT_NULL(t)) {
-    onig_st_foreach(t, i_renumber_name, (HashDataType )map);
+    onig_st_foreach(t, (st_foreach_func)i_renumber_name, (HashDataType )map);
   }
   return 0;
 }
@@ -4884,8 +4884,8 @@ static int type_cclass_hash(type_cclass_key* key)
 }
 
 static struct st_hash_type type_type_cclass_hash = {
-    type_cclass_cmp,
-    type_cclass_hash,
+    (st_compare_func)type_cclass_cmp,
+    (st_hash_func)type_cclass_hash,
 };
 
 static st_table* OnigTypeCClassTable;
@@ -4908,7 +4908,7 @@ extern int
 onig_free_shared_cclass_table(void)
 {
   if (IS_NOT_NULL(OnigTypeCClassTable)) {
-    onig_st_foreach(OnigTypeCClassTable, i_free_shared_class, 0);
+    onig_st_foreach(OnigTypeCClassTable, (st_foreach_func)i_free_shared_class, 0);
     onig_st_free_table(OnigTypeCClassTable);
     OnigTypeCClassTable = NULL;
   }

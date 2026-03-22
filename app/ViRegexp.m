@@ -32,8 +32,8 @@
 + (BOOL)shouldIgnoreCaseForString:(NSString *)string
 {
 	NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
-	return ([defs integerForKey:@"ignorecase"] == NSOnState &&
-	       ([defs integerForKey:@"smartcase"] == NSOffState ||
+	return ([defs integerForKey:@"ignorecase"] == NSControlStateValueOn &&
+	       ([defs integerForKey:@"smartcase"] == NSControlStateValueOff ||
 		[string rangeOfCharacterFromSet:[NSCharacterSet uppercaseLetterCharacterSet]].location == NSNotFound));
 }
 

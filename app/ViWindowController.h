@@ -48,7 +48,7 @@
 
 /** A ViWindowController object manages a document window.
  */
-@interface ViWindowController : NSWindowController <ViJumpListDelegate, NSTextFieldDelegate, NSWindowDelegate, NSToolbarDelegate, ViDeferredDelegate>
+@interface ViWindowController : NSWindowController <ViJumpListDelegate, NSTextFieldDelegate, NSWindowDelegate, NSToolbarDelegate, ViDeferredDelegate, NSSplitViewDelegate, NSMenuItemValidation>
 {
 	IBOutlet PSMTabBarControl	*tabBar;
 	IBOutlet NSTabView		*tabView;

@@ -95,7 +95,7 @@
     result.origin.x = cellFrame.origin.x + MARGIN_X;
     result.origin.y = cellFrame.origin.y + MARGIN_Y + 2.0;
 
-    if([cell state] == NSOnState){
+    if([cell state] == NSControlStateValueOn){
         result.origin.y -= 1;
     }
 
@@ -118,7 +118,7 @@
     if([cell hasCloseButton] && ![cell isCloseButtonSuppressed])
         result.origin.x += [_metalCloseButton size].width + kPSMTabBarCellPadding;
 
-    if([cell state] == NSOnState){
+    if([cell state] == NSControlStateValueOn){
         result.origin.y += 1;
     }
 
@@ -138,7 +138,7 @@
     result.origin.x = cellFrame.origin.x + cellFrame.size.width - MARGIN_X - kPSMTabBarIndicatorWidth;
     result.origin.y = cellFrame.origin.y + MARGIN_Y;
 
-    if([cell state] == NSOnState){
+    if([cell state] == NSControlStateValueOn){
         result.origin.y -= 1;
     }
 
@@ -273,7 +273,7 @@
     NSShadow* shadow;
     shadow = [[[NSShadow alloc] init] autorelease];
     float shadowAlpha;
-    if(([cell state] == NSOnState) || [cell isHighlighted]){
+    if(([cell state] == NSControlStateValueOn) || [cell isHighlighted]){
         shadowAlpha = 0.8;
     } else {
         shadowAlpha = 0.5;
@@ -289,7 +289,7 @@
     if (!TruncatingTailParagraphStyle) {
         TruncatingTailParagraphStyle = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
         [TruncatingTailParagraphStyle setLineBreakMode:NSLineBreakByTruncatingTail];
-        [TruncatingTailParagraphStyle setAlignment:NSCenterTextAlignment];
+        [TruncatingTailParagraphStyle setAlignment:NSTextAlignmentCenter];
     }
     [attrStr addAttribute:NSParagraphStyleAttributeName value:TruncatingTailParagraphStyle range:range];
 
@@ -306,7 +306,7 @@
     NSBezierPath* bezier = [NSBezierPath bezierPath];
     lineColor = [NSColor darkGrayColor];
 
-    if ([cell state] == NSOnState) {
+    if ([cell state] == NSControlStateValueOn) {
         // selected tab
         NSRect aRect = NSMakeRect(cellFrame.origin.x, cellFrame.origin.y, cellFrame.size.width, cellFrame.size.height-2.5);
         aRect.size.height -= 0.5;
@@ -342,7 +342,7 @@
         // rollover
         if ([cell isHighlighted]) {
             [[NSColor colorWithCalibratedWhite:0.0 alpha:0.1] set];
-            NSRectFillUsingOperation(aRect, NSCompositeSourceAtop);
+            NSRectFillUsingOperation(aRect, NSCompositingOperationSourceAtop);
         }
 
         aRect.origin.x -= 1;
@@ -389,7 +389,7 @@
 			closeButtonRect.origin.y += closeButtonRect.size.height;
 		}
 
-		[closeButton drawAtPoint:closeButtonRect.origin fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
+		[closeButton drawAtPoint:closeButtonRect.origin fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
 
 		// scoot label over
 		labelPosition += closeButtonSize.width + kPSMTabBarCellPadding;
@@ -402,7 +402,7 @@
 		if ([controlView isFlipped]) {
 			iconRect.origin.y = cellFrame.size.height - iconRect.origin.y;
 		}
-		[icon drawAtPoint:iconRect.origin fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
+		[icon drawAtPoint:iconRect.origin fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
 
 		// scoot label over
 		labelPosition += iconRect.size.width + kPSMTabBarCellPadding;
@@ -413,7 +413,7 @@
 		[[NSColor colorWithCalibratedWhite:0.3 alpha:0.6] set];
 		NSBezierPath *path = [NSBezierPath bezierPath];
 		NSRect myRect = [self objectCounterRectForTabCell:cell];
-		if([cell state] == NSOnState)
+		if([cell state] == NSControlStateValueOn)
 			myRect.origin.y -= 1.0;
 		[path moveToPoint:NSMakePoint(myRect.origin.x + kPSMMetalObjectCounterRadius, myRect.origin.y)];
 		[path lineToPoint:NSMakePoint(myRect.origin.x + myRect.size.width - kPSMMetalObjectCounterRadius, myRect.origin.y)];
@@ -452,7 +452,7 @@
 {
     NSDrawWindowBackground(rect);
     [[NSColor colorWithCalibratedWhite:0.3 alpha:0.2] set];
-    NSRectFillUsingOperation(rect, NSCompositeSourceAtop);
+    NSRectFillUsingOperation(rect, NSCompositingOperationSourceAtop);
     [[NSColor darkGrayColor] set];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(rect.origin.x,rect.origin.y+0.5) toPoint:NSMakePoint(rect.origin.x+rect.size.width,rect.origin.y+0.5)];
     [NSBezierPath strokeLineFromPoint:NSMakePoint(rect.origin.x,rect.origin.y+rect.size.height-0.5) toPoint:NSMakePoint(rect.origin.x+rect.size.width,rect.origin.y+rect.size.height-0.5)];
@@ -469,7 +469,7 @@
         [attrStr addAttribute:NSFontAttributeName value:[NSFont systemFontOfSize:11.0] range:range];
 
 	NSMutableParagraphStyle *centeredParagraphStyle = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
-	[centeredParagraphStyle setAlignment:NSCenterTextAlignment];
+	[centeredParagraphStyle setAlignment:NSTextAlignmentCenter];
         [attrStr addAttribute:NSParagraphStyleAttributeName value:centeredParagraphStyle range:range];
         [attrStr drawInRect:labelRect];
 

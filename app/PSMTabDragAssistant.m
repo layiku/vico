@@ -145,7 +145,7 @@ static PSMTabDragAssistant *sharedDragAssistant = nil;
     
     [[NSCursor closedHandCursor] set];
     
-    NSPasteboard *pboard = [NSPasteboard pasteboardWithName:NSDragPboard];
+    NSPasteboard *pboard = [NSPasteboard pasteboardWithName:NSPasteboardNameDrag];
     NSImage *dragImage = [cell dragImageForRect:cellFrame];
     [[cell indicator] removeFromSuperview];
     [self distributePlaceholdersInTabBar:control withDraggedCell:cell];
@@ -154,11 +154,18 @@ static PSMTabDragAssistant *sharedDragAssistant = nil;
         cellFrame.origin.y += cellFrame.size.height;
     }
     [cell setHighlighted:NO];
-    NSSize offset = NSZeroSize;
     [pboard declareTypes:[NSArray arrayWithObjects:@"PSMTabBarControlItemPBType", nil] owner: nil];
     [pboard setString:[[NSNumber numberWithInteger:[[control cells] indexOfObject:cell]] stringValue] forType:@"PSMTabBarControlItemPBType"];
     _animationTimer = [NSTimer scheduledTimerWithTimeInterval:(1.0/30.0) target:self selector:@selector(animateDrag:) userInfo:nil repeats:YES];
-    [control dragImage:dragImage at:cellFrame.origin offset:offset event:event pasteboard:pboard source:control slideBack:YES];
+    NSPasteboardItem *pbItem = [[NSPasteboardItem alloc] init];
+    [pbItem setString:[[NSNumber numberWithInteger:[[control cells] indexOfObject:cell]] stringValue]
+              forType:@"PSMTabBarControlItemPBType"];
+    NSDraggingItem *dragItem = [[NSDraggingItem alloc] initWithPasteboardWriter:pbItem];
+    [dragItem setDraggingFrame:cellFrame contents:dragImage];
+    NSDraggingSession *session = [control beginDraggingSessionWithItems:@[dragItem]
+                                                                  event:event
+                                                                 source:control];
+    session.animatesToStartingPositionsOnCancelOrFail = YES;
 }
 
 - (void)draggingEnteredTabBar:(PSMTabBarControl *)control atPoint:(NSPoint)mouseLoc

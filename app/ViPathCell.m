@@ -24,6 +24,7 @@
  */
 
 #import "ViPathCell.h"
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import "ViPathComponentCell.h"
 #import "ViURLManager.h"
 #import "NSURL-additions.h"
@@ -44,7 +45,7 @@
         }
 
         NSMutableArray *components = [NSMutableArray array];
-        NSImage *folderIcon = [[NSWorkspace sharedWorkspace] iconForFileType:NSFileTypeForHFSTypeCode('fldr')];
+        NSImage *folderIcon = [[NSWorkspace sharedWorkspace] iconForContentType:UTTypeFolder];
         // NSImage *homeIcon = [NSImage imageNamed:NSImageNameHomeTemplate];
         NSImage *homeIcon = [[NSWorkspace sharedWorkspace] iconForFile:NSHomeDirectory()];
         NSURL *homeURL = [[ViURLManager defaultManager] normalizeURL:[NSURL URLWithString:@"~" relativeToURL:url]];

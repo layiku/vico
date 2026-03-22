@@ -32,38 +32,10 @@
 @end
 
 @class ViRegexp;
+@class SPUUpdater;
+@class SPUStandardUserDriver;
 
-@protocol ViShellThingProtocol <NSObject>
-
-- (void)exit;
-- (void)exitWithObject:(id)obj;
-- (void)exitWithError:(int)code;
-- (void)log:(NSString *)message;
-
-@end
-
-@protocol ViShellCommandProtocol <NSObject>
-
-- (id)eval:(NSString *)script
-     error:(NSError **)outError;
-- (NSString *)eval:(NSString *)script
-additionalBindings:(NSDictionary *)bindings
-       errorString:(NSString **)errorString
-       backChannel:(NSString *)channelName;
-- (NSError *)openURL:(NSString *)pathOrURL
-             andWait:(BOOL)waitFlag
-         backChannel:(NSString *)channelName;
-- (void)setStartupBasePath:(NSString *)basePath;
-- (NSError *)openURL:(NSString *)pathOrURL;
-- (NSError *)newDocumentWithData:(NSData *)data
-                         andWait:(BOOL)waitFlag
-                     backChannel:(NSString *)channelName;
-- (NSError *)newDocumentWithData:(NSData *)data;
-- (IBAction)newProject:(id)sender;
-
-@end
-
-@interface ViAppController : NSObject <ViShellCommandProtocol, NSTextViewDelegate, NSFileManagerDelegate>
+@interface ViAppController : NSObject <NSTextViewDelegate, NSFileManagerDelegate, NSApplicationDelegate, NSMenuDelegate, NSXPCListenerDelegate>
 {
 	IBOutlet NSMenu		*__weak encodingMenu;
 	IBOutlet NSMenu		*viewMenu;
@@ -75,7 +47,7 @@ additionalBindings:(NSDictionary *)bindings
 	IBOutlet NSMenuItem	*showFileExplorerMenuItem;
 	IBOutlet NSMenuItem	*showSymbolListMenuItem;
 	IBOutlet NSMenuItem	*checkForUpdatesMenuItem;
-	NSConnection		*shellConn;
+	NSXPCListener		*_xpcListener;
 
 	TISInputSourceRef	 original_input_source;
 	BOOL			 _recently_launched;
@@ -90,6 +62,9 @@ additionalBindings:(NSDictionary *)bindings
 	ViTextView		*_fieldEditor;
 
 	NuBlock			*_statusSetupBlock;
+
+	SPUUpdater		*_updater;
+	SPUStandardUserDriver	*_userDriver;
 }
 
 @property(weak, nonatomic,readonly) NSMenu *encodingMenu;

@@ -35,13 +35,6 @@
 
 @synthesize keyManager = _keyManager;
 
-- (void)awakeFromNib
-{
-	[self setKeyManager:[ViKeyManager keyManagerWithTarget:self
-						    defaultMap:[ViMap mapWithName:@"webMap"]]];
-}
-
-
 - (BOOL)performKeyEquivalent:(NSEvent *)theEvent
 {
 	if ([[self window] firstResponder] != self)
@@ -56,16 +49,16 @@
 
 - (void)swipeWithEvent:(NSEvent *)event
 {
-	BOOL rc = NO, keep_message = NO;
+	BOOL rc = NO;
 
 	DEBUG(@"got swipe event %@", event);
 
 	if ([event deltaX] > 0)
-		rc = [self goBack];
+		rc = ([self goBack] != nil);
 	else if ([event deltaX] < 0)
-		rc = [self goForward];
+		rc = ([self goForward] != nil);
 
-	if (rc == YES && !keep_message)
+	if (rc)
 		MESSAGE(@""); // erase any previous message
 }
 
@@ -94,39 +87,19 @@
         vertically:(BOOL)isVertical
          direction:(int)direction
 {
-	NSScrollView *scrollView = [[[[self mainFrame] frameView] documentView] enclosingScrollView];
-
-	NSRect bounds = [[scrollView contentView] bounds];
-	NSPoint p = bounds.origin;
-
-	CGFloat amount;
+	NSString *js;
 	if (isPageScroll) {
 		if (isVertical)
-			amount = bounds.size.height - [scrollView verticalPageScroll];
+			js = [NSString stringWithFormat:@"window.scrollBy(0, %d * (window.innerHeight - 40))", direction];
 		else
-			amount = bounds.size.width - [scrollView horizontalPageScroll];
+			js = [NSString stringWithFormat:@"window.scrollBy(%d * (window.innerWidth - 40), 0)", direction];
 	} else {
 		if (isVertical)
-			amount = [scrollView verticalLineScroll];
+			js = [NSString stringWithFormat:@"window.scrollBy(0, %d * 40)", direction];
 		else
-			amount = [scrollView horizontalLineScroll];
+			js = [NSString stringWithFormat:@"window.scrollBy(%d * 40, 0)", direction];
 	}
-
-	NSRect docBounds = [[scrollView documentView] bounds];
-
-	if (isVertical) {
-		p.y = IMAX(p.y + direction*amount, 0);
-		if (p.y + bounds.size.height > docBounds.size.height)
-			p.y = docBounds.size.height - bounds.size.height;
-	} else {
-		p.x = IMAX(p.x + direction*amount, 0);
-		if (p.x + bounds.size.width > docBounds.size.width)
-			p.x = docBounds.size.width - bounds.size.width;
-	}
-
-	// XXX: this doesn't animate, why?
-	[[scrollView documentView] scrollPoint:p];
-
+	[self evaluateJavaScript:js completionHandler:nil];
 	return YES;
 }
 
@@ -173,18 +146,13 @@
 	int count = command.count;
 	BOOL defaultToEOF = [command.mapping.parameter intValue];
 
-	NSScrollView *scrollView = [[[[self mainFrame] frameView] documentView] enclosingScrollView];
 	if (count == 1 ||
 	    (count == 0 && !defaultToEOF)) {
 		/* goto first line */
-		[[scrollView documentView] scrollPoint:NSMakePoint(0, 0)];
+		[self evaluateJavaScript:@"window.scrollTo(0, 0)" completionHandler:nil];
 	} else if (count == 0) {
 		/* goto last line */
-		NSRect bounds = [[scrollView contentView] bounds];
-		NSRect docBounds = [[scrollView documentView] bounds];
-		NSPoint p = NSMakePoint(0,
-		    IMAX(0, docBounds.size.height - bounds.size.height));
-		[[scrollView documentView] scrollPoint:p];
+		[self evaluateJavaScript:@"window.scrollTo(0, document.body.scrollHeight)" completionHandler:nil];
 	} else {
 		MESSAGE(@"unsupported count for %@ command",
 		    command.mapping.keyString);

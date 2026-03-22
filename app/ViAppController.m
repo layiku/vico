@@ -24,6 +24,7 @@
  */
 
 #import "ViAppController.h"
+#import <objc/message.h>
 #import "ViThemeStore.h"
 #import "ViBundleStore.h"
 #import "ViDocument.h"
@@ -44,8 +45,10 @@
 #import "ViFileExplorer.h"
 #import "ViMarkInspector.h"
 #import "NSMenu-additions.h"
-#import <SUUpdater.h>
+#import <Sparkle/Sparkle.h>
 #import "SFBCrashReporter.h"
+#import "ViXPCProtocols.h"
+#import "ViXPCBackChannelProxy.h"
 
 #import "ViFileURLHandler.h"
 #import "ViSFTPURLHandler.h"
@@ -94,8 +97,8 @@ BOOL openUntitledDocument = YES;
 
 @interface ViAppController ()
 
-- (void)setCloseCallbackForDocument:(ViDocument* )document
-                toNotifyBackChannel:(NSString *)channelName;
+- (void)setCloseCallbackForDocument:(ViDocument *)document
+                        backChannel:(ViXPCBackChannelProxy *)backChannel;
 
 @end
 
@@ -111,12 +114,12 @@ BOOL openUntitledDocument = YES;
 	NSString *s = [[event paramDescriptorForKeyword:keyDirectObject] stringValue];
 
 	NSURL *url = [NSURL URLWithString:s];
-	NSError *error = nil;
 	[[NSDocumentController sharedDocumentController] openDocumentWithContentsOfURL:url
 									       display:YES
-										 error:&error];
-	if (error)
-		[NSApp presentError:error];
+								 completionHandler:^(NSDocument *doc, BOOL wasOpen, NSError *err) {
+		if (err)
+			[NSApp presentError:err];
+	}];
 }
 
 - (id)init
@@ -170,7 +173,12 @@ BOOL openUntitledDocument = YES;
 }
 
 #ifdef TRIAL_VERSION
-#include <openssl/md5.h>
+#include <CommonCrypto/CommonDigest.h>
+#define MD5_CTX          CC_MD5_CTX
+#define MD5_DIGEST_LENGTH CC_MD5_DIGEST_LENGTH
+#define MD5_Init         CC_MD5_Init
+#define MD5_Update       CC_MD5_Update
+#define MD5_Final        CC_MD5_Final
 int
 updateMeta(void)
 {
@@ -243,8 +251,416 @@ updateMeta(void)
 }
 #endif
 
+- (void)buildMainMenu
+{
+	NSMenu *mainMenu = [[NSMenu alloc] init];
+
+	/* ====== Vico (app) menu ====== */
+	NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+	NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"Vico"];
+	[appMenu addItemWithTitle:@"About Vico" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+
+	checkForUpdatesMenuItem = [appMenu addItemWithTitle:@"Check for Updates..." action:nil keyEquivalent:@""];
+
+	[appMenu addItem:[NSMenuItem separatorItem]];
+
+	[appMenu addItemWithTitle:@"Preferences\u2026" action:@selector(showPreferences:) keyEquivalent:@","];
+	[[appMenu itemArray].lastObject setTarget:self];
+
+	[appMenu addItemWithTitle:@"Edit Site Script" action:@selector(editSiteScript:) keyEquivalent:@""];
+	[[appMenu itemArray].lastObject setTarget:self];
+
+	[appMenu addItem:[NSMenuItem separatorItem]];
+
+	NSMenuItem *servicesItem = [[NSMenuItem alloc] initWithTitle:@"Services" action:nil keyEquivalent:@""];
+	NSMenu *servicesMenu = [[NSMenu alloc] initWithTitle:@"Services"];
+	[servicesItem setSubmenu:servicesMenu];
+	[appMenu addItem:servicesItem];
+	[NSApp setServicesMenu:servicesMenu];
+
+	[appMenu addItem:[NSMenuItem separatorItem]];
+	[appMenu addItemWithTitle:@"Hide Vico" action:@selector(hide:) keyEquivalent:@"h"];
+	NSMenuItem *hideOthersItem = [appMenu addItemWithTitle:@"Hide Others" action:@selector(hideOtherApplications:) keyEquivalent:@"h"];
+	[hideOthersItem setKeyEquivalentModifierMask:NSEventModifierFlagOption | NSEventModifierFlagCommand];
+	[appMenu addItemWithTitle:@"Show All" action:@selector(unhideAllApplications:) keyEquivalent:@""];
+	[appMenu addItem:[NSMenuItem separatorItem]];
+	[appMenu addItemWithTitle:@"Quit Vico" action:@selector(terminate:) keyEquivalent:@"q"];
+
+	[appMenuItem setSubmenu:appMenu];
+	[mainMenu addItem:appMenuItem];
+	((void (*)(id, SEL, id))objc_msgSend)(NSApp, NSSelectorFromString(@"setAppleMenu:"), appMenu);
+
+	/* ====== File menu ====== */
+	NSMenuItem *fileMenuItem = [[NSMenuItem alloc] init];
+	NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
+	[fileMenu setDelegate:self];
+
+	[fileMenu addItemWithTitle:@"New Document" action:@selector(newDocument:) keyEquivalent:@"N"];
+	[fileMenu addItemWithTitle:@"New Window" action:@selector(newProject:) keyEquivalent:@"n"];
+
+	NSMenuItem *item;
+	item = [fileMenu addItemWithTitle:@"New Split (<c-w>n)" action:nil keyEquivalent:@""];
+	[item setTag:4000];
+	item = [fileMenu addItemWithTitle:@"New Vertical Split (:vnew<cr>)(:<c-u>vnew<cr>)" action:nil keyEquivalent:@""];
+	[item setTag:4000];
+
+	[fileMenu addItem:[NSMenuItem separatorItem]];
+	[fileMenu addItemWithTitle:@"Open\u2026" action:@selector(openDocument:) keyEquivalent:@"o"];
+
+	NSMenuItem *openRecentItem = [[NSMenuItem alloc] initWithTitle:@"Open Recent" action:nil keyEquivalent:@""];
+	NSMenu *openRecentMenu = [[NSMenu alloc] initWithTitle:@"Open Recent"];
+	[openRecentMenu addItemWithTitle:@"Clear Menu" action:@selector(clearRecentDocuments:) keyEquivalent:@""];
+	[openRecentItem setSubmenu:openRecentMenu];
+	[fileMenu addItem:openRecentItem];
+
+	NSMenuItem *reopenEncodingItem = [[NSMenuItem alloc] initWithTitle:@"Reopen with Encoding" action:nil keyEquivalent:@""];
+	NSMenu *reopenEncodingMenu = [[NSMenu alloc] initWithTitle:@"Reopen with Encoding"];
+	[reopenEncodingItem setSubmenu:reopenEncodingMenu];
+	[fileMenu addItem:reopenEncodingItem];
+	encodingMenu = reopenEncodingMenu;
+
+	[fileMenu addItem:[NSMenuItem separatorItem]];
+
+	closeWindowMenuItem = [fileMenu addItemWithTitle:@"Close Window" action:@selector(performClose:) keyEquivalent:@"W"];
+
+	closeDocumentMenuItem = [fileMenu addItemWithTitle:@"Close Document" action:@selector(closeCurrentDocument:) keyEquivalent:@"w"];
+	[closeDocumentMenuItem setKeyEquivalentModifierMask:NSEventModifierFlagControl | NSEventModifierFlagCommand];
+
+	closeTabMenuItem = [fileMenu addItemWithTitle:@"Close" action:@selector(closeCurrent:) keyEquivalent:@"w"];
+
+	item = [fileMenu addItemWithTitle:@"Close View (<c-w>c)" action:nil keyEquivalent:@""];
+	[item setTag:4000];
+	item = [fileMenu addItemWithTitle:@"Close Other Views (<c-w>o)" action:nil keyEquivalent:@""];
+	[item setTag:4000];
+
+	[fileMenu addItem:[NSMenuItem separatorItem]];
+	[fileMenu addItemWithTitle:@"Save" action:@selector(saveDocument:) keyEquivalent:@"s"];
+
+	item = [fileMenu addItemWithTitle:@"Save As\u2026" action:@selector(saveDocumentAs:) keyEquivalent:@"S"];
+	[item setKeyEquivalentModifierMask:NSEventModifierFlagShift | NSEventModifierFlagCommand];
+
+	item = [fileMenu addItemWithTitle:@"Revert to Saved (:edit!<cr>)(:<c-u>edit!<cr>)" action:@selector(revertDocumentToSaved:) keyEquivalent:@""];
+	[item setTag:4000];
+
+	item = [[NSMenuItem separatorItem] init];
+	[item setHidden:YES];
+	[fileMenu addItem:[NSMenuItem separatorItem]];
+	[[fileMenu itemArray].lastObject setHidden:YES];
+
+	item = [fileMenu addItemWithTitle:@"Page Setup..." action:@selector(runPageLayout:) keyEquivalent:@"P"];
+	[item setKeyEquivalentModifierMask:NSEventModifierFlagShift | NSEventModifierFlagCommand];
+	[item setHidden:YES];
+
+	item = [fileMenu addItemWithTitle:@"Print\u2026" action:@selector(printDocument:) keyEquivalent:@"p"];
+	[item setHidden:YES];
+
+	[fileMenuItem setSubmenu:fileMenu];
+	[mainMenu addItem:fileMenuItem];
+
+	/* ====== Edit menu ====== */
+	NSMenuItem *editMenuItem = [[NSMenuItem alloc] init];
+	NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
+	[editMenu setDelegate:self];
+
+	[editMenu addItemWithTitle:@"Undo" action:NSSelectorFromString(@"undo:") keyEquivalent:@"z"];
+	item = [editMenu addItemWithTitle:@"Redo" action:NSSelectorFromString(@"redo:") keyEquivalent:@"Z"];
+	[item setKeyEquivalentModifierMask:NSEventModifierFlagShift | NSEventModifierFlagCommand];
+	item = [editMenu addItemWithTitle:@"Repeat Last Change (.)()" action:nil keyEquivalent:@""];
+	[item setTag:4000];
+
+	[editMenu addItem:[NSMenuItem separatorItem]];
+	[editMenu addItemWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"];
+	[editMenu addItemWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"];
+	[editMenu addItemWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"];
+	item = [editMenu addItemWithTitle:@"Delete ()(\"_x)" action:@selector(cut:) keyEquivalent:@""];
+	[item setTag:4000];
+
+	[editMenu addItem:[NSMenuItem separatorItem]];
+
+	/* Insert Text submenu */
+	NSMenuItem *insertTextItem = [[NSMenuItem alloc] initWithTitle:@"Insert Text" action:nil keyEquivalent:@""];
+	NSMenu *insertTextMenu = [[NSMenu alloc] initWithTitle:@"Insert Text"];
+	[insertTextMenu setDelegate:self];
+	item = [insertTextMenu addItemWithTitle:@"Insert at Caret (i)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [insertTextMenu addItemWithTitle:@"Insert at Beginning of Line (I)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [insertTextMenu addItemWithTitle:@"Insert after Caret (a)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [insertTextMenu addItemWithTitle:@"Insert after End of Line (A)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[insertTextMenu addItem:[NSMenuItem separatorItem]];
+	item = [insertTextMenu addItemWithTitle:@"Insert Line below (o)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [insertTextMenu addItemWithTitle:@"Insert Line above (O)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[insertTextMenu addItem:[NSMenuItem separatorItem]];
+	item = [insertTextMenu addItemWithTitle:@"Insert at Last Insertion (gi)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[insertTextItem setSubmenu:insertTextMenu];
+	[editMenu addItem:insertTextItem];
+
+	[editMenu addItem:[NSMenuItem separatorItem]];
+	item = [editMenu addItemWithTitle:@"Shift Line / Selection Left (<<)(<)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [editMenu addItemWithTitle:@"Shift Line / Selection Right (>>)(>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [editMenu addItemWithTitle:@"Indent Line / Selection (==)(=)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[editMenu addItem:[NSMenuItem separatorItem]];
+	item = [editMenu addItemWithTitle:@"Join Lines (J)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [editMenu addItemWithTitle:@"Reformat Paragraph / Selection (gqap)(gq)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[editMenu addItem:[NSMenuItem separatorItem]];
+
+	/* Select submenu */
+	NSMenuItem *selectItem = [[NSMenuItem alloc] initWithTitle:@"Select" action:nil keyEquivalent:@""];
+	NSMenu *selectMenu = [[NSMenu alloc] initWithTitle:@"Select"];
+	[selectMenu setDelegate:self];
+	item = [selectMenu addItemWithTitle:@"Word (viw)(iw)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectMenu addItemWithTitle:@"Line (V)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectMenu addItemWithTitle:@"Sentence (vis)(is)" action:nil keyEquivalent:@""];
+	[item setTag:4000]; [item setHidden:YES]; [item setEnabled:NO];
+	item = [selectMenu addItemWithTitle:@"Paragraph (vip)(ip)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectMenu addItemWithTitle:@"( Block ) (vib)(ib)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectMenu addItemWithTitle:@"{ Block } (viB)(iB)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectMenu addItemWithTitle:@"[ Block ] (vi[)(i[)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectMenu addItemWithTitle:@"< Block > (vi<)(i<)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectMenu addItemWithTitle:@"Scope (viS)(iS)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[selectMenu addItemWithTitle:@"All" action:@selector(selectAll:) keyEquivalent:@"a"];
+	[selectMenu addItem:[NSMenuItem separatorItem]];
+	item = [selectMenu addItemWithTitle:@"Reselect Last Selection (gv)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[selectItem setSubmenu:selectMenu];
+	[editMenu addItem:selectItem];
+
+	/* Convert submenu */
+	NSMenuItem *convertItem = [[NSMenuItem alloc] initWithTitle:@"Convert" action:nil keyEquivalent:@""];
+	NSMenu *convertMenu = [[NSMenu alloc] initWithTitle:@"Convert"];
+	[convertMenu setDelegate:self];
+	item = [convertMenu addItemWithTitle:@"Upper Case Word / Selection (gUiw)(U)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [convertMenu addItemWithTitle:@"Lower Case Word / Selection (guiw)(u)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [convertMenu addItemWithTitle:@"Toggle Case Word / Selection (g~iw)(~)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[convertMenu addItem:[NSMenuItem separatorItem]];
+	item = [convertMenu addItemWithTitle:@"Tabs to Spaces (:%!expand<cr>)(!expand<cr>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [convertMenu addItemWithTitle:@"Spaces to Tabs (:%!unexpand<cr>)(!unexpand<cr>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[convertItem setSubmenu:convertMenu];
+	[editMenu addItem:convertItem];
+
+	/* Filter submenu */
+	NSMenuItem *filterItem = [[NSMenuItem alloc] initWithTitle:@"Filter" action:nil keyEquivalent:@""];
+	NSMenu *filterMenu = [[NSMenu alloc] initWithTitle:@"Filter"];
+	[filterMenu setDelegate:self];
+	item = [filterMenu addItemWithTitle:@"Filter Through Command... (gg!G )(!)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [filterMenu addItemWithTitle:@"Sort Document / Selection (:%!sort<cr>)(!sort<cr>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [filterMenu addItemWithTitle:@"Sort and Remove Duplicates (:%!sort -u<cr>)(!sort -u<cr>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[filterItem setSubmenu:filterMenu];
+	[editMenu addItem:filterItem];
+
+	/* Find submenu */
+	NSMenuItem *findItem = [[NSMenuItem alloc] initWithTitle:@"Find" action:nil keyEquivalent:@""];
+	NSMenu *findMenu = [[NSMenu alloc] initWithTitle:@"Find"];
+	[findMenu setDelegate:self];
+	item = [findMenu addItemWithTitle:@"Find\u2026 (/)" action:@selector(performFindPanelAction:) keyEquivalent:@"f"];
+	[item setTag:4000];
+	item = [findMenu addItemWithTitle:@"Find Backwards\u2026 (?)" action:@selector(performFindPanelAction:) keyEquivalent:@""];
+	[item setTag:4000];
+	item = [findMenu addItemWithTitle:@"Find Current Word (*)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [findMenu addItemWithTitle:@"Find Current Word Backwards (#)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [findMenu addItemWithTitle:@"Find Next (n)" action:nil keyEquivalent:@"g"];
+	[item setTag:4000];
+	item = [findMenu addItemWithTitle:@"Find Previous (N)" action:nil keyEquivalent:@"G"];
+	[item setTag:4000];
+	[item setKeyEquivalentModifierMask:NSEventModifierFlagShift | NSEventModifierFlagCommand];
+	[findItem setSubmenu:findMenu];
+	[editMenu addItem:findItem];
+
+	/* Spelling and Grammar submenu */
+	NSMenuItem *spellingItem = [[NSMenuItem alloc] initWithTitle:@"Spelling and Grammar" action:nil keyEquivalent:@""];
+	NSMenu *spellingMenu = [[NSMenu alloc] initWithTitle:@"Spelling and Grammar"];
+	[spellingMenu addItemWithTitle:@"Show Spelling\u2026" action:@selector(showGuessPanel:) keyEquivalent:@":"];
+	[spellingMenu addItemWithTitle:@"Check Spelling" action:@selector(checkSpelling:) keyEquivalent:@";"];
+	[spellingMenu addItemWithTitle:@"Check Spelling While Typing" action:@selector(toggleContinuousSpellChecking:) keyEquivalent:@""];
+	[spellingMenu addItemWithTitle:@"Check Grammar With Spelling" action:@selector(toggleGrammarChecking:) keyEquivalent:@""];
+	[spellingItem setSubmenu:spellingMenu];
+	[editMenu addItem:spellingItem];
+
+	/* Speech submenu */
+	NSMenuItem *speechItem = [[NSMenuItem alloc] initWithTitle:@"Speech" action:nil keyEquivalent:@""];
+	NSMenu *speechMenu = [[NSMenu alloc] initWithTitle:@"Speech"];
+	[speechMenu addItemWithTitle:@"Start Speaking" action:@selector(startSpeaking:) keyEquivalent:@""];
+	[speechMenu addItemWithTitle:@"Stop Speaking" action:@selector(stopSpeaking:) keyEquivalent:@""];
+	[speechItem setSubmenu:speechMenu];
+	[editMenu addItem:speechItem];
+
+	[editMenuItem setSubmenu:editMenu];
+	[mainMenu addItem:editMenuItem];
+
+	/* ====== Navigate menu ====== */
+	NSMenuItem *navigateMenuItem = [[NSMenuItem alloc] init];
+	NSMenu *navigateMenu = [[NSMenu alloc] initWithTitle:@"Navigate"];
+	[navigateMenu setDelegate:self];
+
+	[navigateMenu addItemWithTitle:@"Go to Symbol..." action:@selector(searchSymbol:) keyEquivalent:@"T"];
+	[navigateMenu addItemWithTitle:@"Go to File..." action:@selector(searchFiles:) keyEquivalent:@"t"];
+	item = [navigateMenu addItemWithTitle:@"Go to Previous File (<C-^>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+
+	item = [navigateMenu addItemWithTitle:@"Reveal Document in Explorer" action:@selector(revealCurrentDocument:) keyEquivalent:@"r"];
+	[item setKeyEquivalentModifierMask:NSEventModifierFlagControl | NSEventModifierFlagCommand];
+
+	[navigateMenu addItem:[NSMenuItem separatorItem]];
+	item = [navigateMenu addItemWithTitle:@"Go Back in Jump List (<C-o>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [navigateMenu addItemWithTitle:@"Go Forward in Jump List (<C-i>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[navigateMenu addItem:[NSMenuItem separatorItem]];
+	item = [navigateMenu addItemWithTitle:@"Go to Definition of Tag (<C-]>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [navigateMenu addItemWithTitle:@"Go Back (<C-t>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[navigateMenu addItem:[NSMenuItem separatorItem]];
+
+	/* Go to submenu */
+	NSMenuItem *gotoItem = [[NSMenuItem alloc] initWithTitle:@"Go to" action:nil keyEquivalent:@""];
+	NSMenu *gotoMenu = [[NSMenu alloc] initWithTitle:@"Go to"];
+	[gotoMenu setDelegate:self];
+	item = [gotoMenu addItemWithTitle:@"Go to Beginning of Line (0)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [gotoMenu addItemWithTitle:@"Go to First Nonblank (^)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [gotoMenu addItemWithTitle:@"Go to End of Line ($)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[gotoMenu addItem:[NSMenuItem separatorItem]];
+	item = [gotoMenu addItemWithTitle:@"Go to First Line (gg)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [gotoMenu addItemWithTitle:@"Go to Last Line (G)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [gotoMenu addItemWithTitle:@"Go to Line Number (:)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[gotoMenu addItem:[NSMenuItem separatorItem]];
+	item = [gotoMenu addItemWithTitle:@"Go to Next Paragraph (})" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [gotoMenu addItemWithTitle:@"Go to Previous Paragraph ({)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[gotoMenu addItem:[NSMenuItem separatorItem]];
+	item = [gotoMenu addItemWithTitle:@"Go to Top of Screen (H)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [gotoMenu addItemWithTitle:@"Go to Middle of Screen (M)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [gotoMenu addItemWithTitle:@"Go to Bottom of Screen (L)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[gotoMenu addItem:[NSMenuItem separatorItem]];
+	item = [gotoMenu addItemWithTitle:@"Go to Last Change (`.)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[gotoItem setSubmenu:gotoMenu];
+	[navigateMenu addItem:gotoItem];
+
+	/* Scroll submenu */
+	NSMenuItem *scrollItem = [[NSMenuItem alloc] initWithTitle:@"Scroll" action:nil keyEquivalent:@""];
+	NSMenu *scrollMenu = [[NSMenu alloc] initWithTitle:@"Scroll"];
+	[scrollMenu setDelegate:self];
+	item = [scrollMenu addItemWithTitle:@"Scroll Line Down (<C-e>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [scrollMenu addItemWithTitle:@"Scroll Line Up (<C-y>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[scrollMenu addItem:[NSMenuItem separatorItem]];
+	item = [scrollMenu addItemWithTitle:@"Scroll Half Page Down (<C-d>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [scrollMenu addItemWithTitle:@"Scroll Half Page Up (<C-u>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[scrollMenu addItem:[NSMenuItem separatorItem]];
+	item = [scrollMenu addItemWithTitle:@"Scroll Page Down (<C-f>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [scrollMenu addItemWithTitle:@"Scroll Page Up (<C-b>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[scrollMenu addItem:[NSMenuItem separatorItem]];
+	item = [scrollMenu addItemWithTitle:@"Position Caret at Top (zt)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [scrollMenu addItemWithTitle:@"Position Caret at Center (zz)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [scrollMenu addItemWithTitle:@"Position Caret at Bottom (zb)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[scrollItem setSubmenu:scrollMenu];
+	[navigateMenu addItem:scrollItem];
+
+	[navigateMenuItem setSubmenu:navigateMenu];
+	[mainMenu addItem:navigateMenuItem];
+
+	/* ====== View menu ====== */
+	NSMenuItem *viewMenuItem = [[NSMenuItem alloc] init];
+	viewMenu = [[NSMenu alloc] initWithTitle:@"View"];
+	[viewMenu setDelegate:self];
+
+	[viewMenu addItemWithTitle:@"Navigate Symbol List" action:@selector(focusSymbols:) keyEquivalent:@"y"];
+	showSymbolListMenuItem = [viewMenu addItemWithTitle:@"Show Symbol List" action:@selector(toggleSymbolList:) keyEquivalent:@"Y"];
+	[viewMenu addItem:[NSMenuItem separatorItem]];
+	[viewMenu addItemWithTitle:@"Navigate File Explorer" action:@selector(focusExplorer:) keyEquivalent:@"e"];
+	showFileExplorerMenuItem = [viewMenu addItemWithTitle:@"Show File Explorer" action:@selector(toggleExplorer:) keyEquivalent:@"E"];
+	[viewMenu addItem:[NSMenuItem separatorItem]];
+
+	item = [viewMenu addItemWithTitle:@"Split Horizontally (<c-w>s)" action:@selector(splitViewHorizontally:) keyEquivalent:@""];
+	[item setTag:4000];
+	item = [viewMenu addItemWithTitle:@"Split Vertically (<c-w>v)" action:@selector(splitViewVertically:) keyEquivalent:@""];
+	[item setTag:4000];
+	item = [viewMenu addItemWithTitle:@"Move View to New Tab (<c-w>T)" action:@selector(moveCurrentViewToNewTabAction:) keyEquivalent:@""];
+	[item setTag:4000];
+	item = [viewMenu addItemWithTitle:@"Move View to New Window (<c-w>D)" action:NSSelectorFromString(@"moveCurrentViewToNewWindowAction:") keyEquivalent:@""];
+	[item setTag:4000];
+
+	/* Select Split View submenu */
+	NSMenuItem *selectSplitItem = [[NSMenuItem alloc] initWithTitle:@"Select Split View" action:nil keyEquivalent:@""];
+	NSMenu *selectSplitMenu = [[NSMenu alloc] initWithTitle:@"Select Split View"];
+	[selectSplitMenu setDelegate:self];
+	item = [selectSplitMenu addItemWithTitle:@"Select Left View (<C-w>h)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectSplitMenu addItemWithTitle:@"Select Right View (<C-w>l)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectSplitMenu addItemWithTitle:@"Select View Above (<C-w>k)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectSplitMenu addItemWithTitle:@"Select View Below (<C-w>j)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[selectSplitMenu addItem:[NSMenuItem separatorItem]];
+	item = [selectSplitMenu addItemWithTitle:@"Select Last View (<C-w>p)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectSplitMenu addItemWithTitle:@"Select Next View (<C-w>w)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [selectSplitMenu addItemWithTitle:@"Select Previous View (<C-w>W)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[selectSplitItem setSubmenu:selectSplitMenu];
+	[viewMenu addItem:selectSplitItem];
+
+	[viewMenu addItem:[NSMenuItem separatorItem]];
+	[viewMenu addItemWithTitle:@"Bigger font" action:@selector(increaseFontsizeAction:) keyEquivalent:@"+"];
+	[viewMenu addItemWithTitle:@"Smaller font" action:@selector(decreaseFontsizeAction:) keyEquivalent:@"-"];
+	[viewMenu addItem:[NSMenuItem separatorItem]];
+
+	item = [viewMenu addItemWithTitle:@"Show Toolbar" action:@selector(toggleToolbarShown:) keyEquivalent:@"t"];
+	[item setKeyEquivalentModifierMask:NSEventModifierFlagOption | NSEventModifierFlagCommand];
+	[viewMenu addItemWithTitle:@"Customize Toolbar\u2026" action:@selector(runToolbarCustomizationPalette:) keyEquivalent:@""];
+
+	[viewMenuItem setSubmenu:viewMenu];
+	[mainMenu addItem:viewMenuItem];
+
+	/* ====== Develop menu ====== */
+	NSMenuItem *developMenuItem = [[NSMenuItem alloc] initWithTitle:@"Develop" action:nil keyEquivalent:@""];
+	NSMenu *developMenu = [[NSMenu alloc] initWithTitle:@"Develop"];
+	[developMenu setDelegate:self];
+	item = [developMenu addItemWithTitle:@"Reload Bundle (:reloadbundle<cr>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [developMenu addItemWithTitle:@"Toggle Console (:console<cr>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	item = [developMenu addItemWithTitle:@"Evaluate File / Selection (:%eval<cr>)(:eval<cr>)" action:nil keyEquivalent:@""]; [item setTag:4000];
+	[developMenuItem setSubmenu:developMenu];
+	[mainMenu addItem:developMenuItem];
+
+	/* Wire ViDocumentController's developMenu outlet */
+	[(ViDocumentController *)[NSDocumentController sharedDocumentController] setDevelopMenu:developMenuItem];
+
+	/* ====== Window menu ====== */
+	NSMenuItem *windowMenuItem = [[NSMenuItem alloc] init];
+	NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
+	[windowMenu setDelegate:self];
+
+	[windowMenu addItemWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+	[windowMenu addItemWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""];
+	[windowMenu addItem:[NSMenuItem separatorItem]];
+
+	item = [windowMenu addItemWithTitle:@"Select Next Tab" action:@selector(selectNextTab:) keyEquivalent:@"\t"];
+	[item setKeyEquivalentModifierMask:NSEventModifierFlagControl];
+	item = [windowMenu addItemWithTitle:@"Select Previous Tab" action:@selector(selectPreviousTab:) keyEquivalent:@"\t"];
+	[item setKeyEquivalentModifierMask:NSEventModifierFlagShift | NSEventModifierFlagControl];
+
+	[windowMenu addItem:[NSMenuItem separatorItem]];
+
+	item = [windowMenu addItemWithTitle:@"Show Mark Inspector" action:@selector(showMarkInspector:) keyEquivalent:@""];
+	[item setTarget:self];
+	[item setHidden:YES];
+
+	[windowMenu addItemWithTitle:@"Bring All to Front" action:@selector(arrangeInFront:) keyEquivalent:@""];
+
+	[windowMenuItem setSubmenu:windowMenu];
+	[mainMenu addItem:windowMenuItem];
+	[NSApp setWindowsMenu:windowMenu];
+
+	/* ====== Help menu ====== */
+	NSMenuItem *helpMenuItem = [[NSMenuItem alloc] init];
+	NSMenu *helpMenu = [[NSMenu alloc] initWithTitle:@"Help"];
+
+	[helpMenu addItemWithTitle:@"Vico Help" action:@selector(showHelp:) keyEquivalent:@"?"];
+
+	item = [helpMenu addItemWithTitle:@"Install Terminal Helper" action:@selector(installTerminalHelper:) keyEquivalent:@""];
+	[item setTarget:self];
+
+	[helpMenu addItem:[NSMenuItem separatorItem]];
+
+	item = [helpMenu addItemWithTitle:@"Visit Vico Website" action:@selector(visitWebsite:) keyEquivalent:@""];
+	[item setTarget:self];
+
+	[helpMenuItem setSubmenu:helpMenu];
+	[mainMenu addItem:helpMenuItem];
+	[NSApp setHelpMenu:helpMenu];
+
+	[NSApp setMainMenu:mainMenu];
+}
+
 - (void)applicationWillFinishLaunching:(NSNotification *)aNotification
 {
+	[self buildMainMenu];
+
 	/* Cache the default IBeam cursor implementation. */
 	[NSCursor defaultIBeamCursorImplementation];
 
@@ -255,8 +671,17 @@ updateMeta(void)
 
 	//[SFBCrashReporter checkForNewCrashes];
 
-	//[checkForUpdatesMenuItem setAction:@selector(checkForUpdates:)];
-	//[checkForUpdatesMenuItem setTarget:[SUUpdater sharedUpdater]];
+	_userDriver = [[SPUStandardUserDriver alloc] initWithHostBundle:[NSBundle mainBundle] delegate:nil];
+	_updater = [[SPUUpdater alloc] initWithHostBundle:[NSBundle mainBundle]
+	                                applicationBundle:[NSBundle mainBundle]
+	                                       userDriver:_userDriver
+	                                         delegate:nil];
+	NSError *updaterError = nil;
+	if (![_updater startUpdater:&updaterError]) {
+		NSLog(@"Failed to start Sparkle updater: %@", updaterError);
+	}
+	[checkForUpdatesMenuItem setAction:@selector(checkForUpdates:)];
+	[checkForUpdatesMenuItem setTarget:_updater];
 
 #if defined(DEBUG_BUILD)
 	[NSApp activateIgnoringOtherApps:YES];
@@ -352,7 +777,7 @@ updateMeta(void)
 	while (*encoding) {
 		NSString *title = [NSString localizedNameOfStringEncoding:*encoding];
 		item = [[NSMenuItem alloc] initWithTitle:title
-						  action:@selector(setEncoding:)
+						  action:NSSelectorFromString(@"setEncoding:")
 					   keyEquivalent:@""];
 		[item setRepresentedObject:[NSNumber numberWithUnsignedLong:*encoding]];
 		[array addObject:item];
@@ -374,9 +799,10 @@ updateMeta(void)
 	[TMFileURLProtocol registerProtocol];
 	[TxmtURLProtocol registerProtocol];
 
-	shellConn = [NSConnection new];
-	[shellConn setRootObject:self];
-	[shellConn registerName:[NSString stringWithFormat:@"vico.%u", (unsigned int)getuid()]];
+	[self installXPCLaunchdPlistIfNeeded];
+	_xpcListener = [[NSXPCListener alloc] initWithMachServiceName:@"se.bzero.vico.ipc"];
+	[_xpcListener setDelegate:self];
+	[_xpcListener resume];
 
 	extern struct timeval launch_start;
 	struct timeval launch_done, launch_diff;
@@ -434,7 +860,7 @@ updateMeta(void)
 	if ([dummyWindow respondsToSelector:@selector(toggleFullScreen:)]) {
 		[viewMenu addItem:[NSMenuItem separatorItem]];
 		NSMenuItem *item = [viewMenu addItemWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"];
-		[item setKeyEquivalentModifierMask:NSCommandKeyMask | NSControlKeyMask];
+		[item setKeyEquivalentModifierMask:NSEventModifierFlagCommand | NSEventModifierFlagControl];
 	}
 
 	NSString *siteFile = [[ViAppController supportDirectory] stringByAppendingPathComponent:@"site.nu"];
@@ -563,7 +989,9 @@ extern BOOL __makeNewWindowInsteadOfTab;
 - (IBAction)editSiteScript:(id)sender
 {
 	NSURL *siteURL = [NSURL fileURLWithPath:[[ViAppController supportDirectory] stringByAppendingPathComponent:@"site.nu"]];
-	[[NSDocumentController sharedDocumentController] openDocumentWithContentsOfURL:siteURL display:YES error:nil];
+	[[NSDocumentController sharedDocumentController] openDocumentWithContentsOfURL:siteURL
+									       display:YES
+								 completionHandler:^(NSDocument *doc, BOOL wasOpen, NSError *err) {}];
 }
 
 #pragma mark -
@@ -628,33 +1056,14 @@ withParser:(NuParser *)parser
 }
 
 #pragma mark -
-#pragma mark Shell commands
+#pragma mark Shell commands (internal)
 
-- (NSString *)eval:(NSString *)script
-additionalBindings:(NSDictionary *)bindings
-       errorString:(NSString **)errorString
-       backChannel:(NSString *)channelName
+- (void)openURL:(NSString *)pathOrURL completion:(void (^)(NSError *error))completion
 {
-	NuParser *parser = [Nu sharedParser];
-
-	if (channelName) {
-		NSDistantObject *backChannel = [NSConnection rootProxyForConnectionWithRegisteredName:channelName host:nil];
-		[parser setValue:backChannel forKey:@"shellCommand"];
-	}
-
-	NSError *error = nil;
-	id result = [self eval:script withParser:parser bindings:bindings error:&error];
-	if (error && errorString)
-		*errorString = [error localizedDescription];
-
-	if ([result isKindOfClass:[NSNull class]])
-		return nil;
-	
-	SBJsonWriter *writer = [[SBJsonWriter alloc] init];
-	return [writer stringWithObject:result];
+	[self openURLInternal:pathOrURL andWait:NO backChannel:nil completion:completion];
 }
 
-- (NSError *)openURL:(NSString *)pathOrURL andWait:(BOOL)waitFlag backChannel:(NSString *)channelName
+- (void)openURLInternal:(NSString *)pathOrURL andWait:(BOOL)waitFlag backChannel:(ViXPCBackChannelProxy *)backChannel completion:(void (^)(NSError *error))completion
 {
 	ViDocumentController *docCon = [ViDocumentController sharedDocumentController];
 
@@ -664,33 +1073,24 @@ additionalBindings:(NSDictionary *)bindings
 	else
 		url = [[ViURLManager defaultManager] normalizeURL:[[NSURL URLWithString:pathOrURL] absoluteURL]];
 
-	NSError *error = nil;
-	ViDocument *doc = [docCon openDocumentWithContentsOfURL:url
-							display:YES
-							  error:&error];
-
-	[self setCloseCallbackForDocument:doc toNotifyBackChannel:channelName];
-
-	if (doc)
-		[NSApp activateIgnoringOtherApps:YES];
-
-	return error;
+	[docCon openDocumentWithContentsOfURL:url display:YES completionHandler:^(NSDocument *document, BOOL wasOpen, NSError *error) {
+		ViDocument *doc = (ViDocument *)document;
+		[self setCloseCallbackForDocument:doc backChannel:backChannel];
+		if (doc)
+			[NSApp activateIgnoringOtherApps:YES];
+		if (completion) completion(error);
+	}];
 }
 
-- (void)setStartupBasePath:(NSString *)basePath
+- (NSError *)newDocumentWithData:(NSData *)data
 {
-	[[ViWindowController currentWindowController] setBaseURL:[NSURL fileURLWithPath:basePath]];
+	return [self newDocumentWithDataInternal:data andWait:NO backChannel:nil];
 }
 
-- (NSError *)openURL:(NSString *)pathOrURL
-{
-	return [self openURL:pathOrURL andWait:NO backChannel:nil];
-}
-
-- (NSError *)newDocumentWithData:(NSData *)data andWait:(BOOL)waitFlag backChannel:(NSString *)channelName
+- (NSError *)newDocumentWithDataInternal:(NSData *)data andWait:(BOOL)waitFlag backChannel:(ViXPCBackChannelProxy *)backChannel
 {
 	NSError *error = nil;
-	
+
 	ViDocumentController *docCon = [ViDocumentController sharedDocumentController];
 
 	[docCon newDocument:nil];
@@ -698,26 +1098,17 @@ additionalBindings:(NSDictionary *)bindings
 	ViDocument *doc = [winCon currentDocument];
 	[doc setData:data];
 
-	[self setCloseCallbackForDocument:doc toNotifyBackChannel:channelName];
-	
+	[self setCloseCallbackForDocument:doc backChannel:backChannel];
+
 	if (doc)
 		[NSApp activateIgnoringOtherApps:YES];
 
 	return error;
 }
 
-- (NSError *)newDocumentWithData:(NSData *)data;
+- (void)setCloseCallbackForDocument:(ViDocument *)document
+                        backChannel:(ViXPCBackChannelProxy *)backChannel
 {
-	return [self newDocumentWithData:data andWait:NO backChannel:nil];
-}
-
-- (void)setCloseCallbackForDocument:(ViDocument* )document
-                toNotifyBackChannel:(NSString *)channelName
-{
-	NSProxy<ViShellThingProtocol> *backChannel = nil;
-	if (channelName)
-		backChannel = (NSProxy<ViShellThingProtocol> *)[NSConnection rootProxyForConnectionWithRegisteredName:channelName host:nil];
-
 	if ([document respondsToSelector:@selector(setCloseCallback:)] && backChannel) {
 		[document setCloseCallback:^(int code) {
 			@try {
@@ -728,6 +1119,137 @@ additionalBindings:(NSDictionary *)bindings
 			}
 		}];
 	}
+}
+
+#pragma mark XPC Listener Delegate
+
+- (BOOL)listener:(NSXPCListener *)listener shouldAcceptNewConnection:(NSXPCConnection *)newConnection
+{
+	newConnection.exportedInterface = [NSXPCInterface interfaceWithProtocol:@protocol(ViShellCommandXPCProtocol)];
+	newConnection.exportedObject = self;
+	newConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(ViShellThingXPCProtocol)];
+	[newConnection resume];
+	return YES;
+}
+
+#pragma mark ViShellCommandXPCProtocol
+
+- (void)pingWithReply:(void (^)(void))reply
+{
+	reply();
+}
+
+- (void)evalScript:(NSString *)script
+ additionalBindings:(NSDictionary *)bindings
+          withReply:(void (^)(NSString *result, NSString *errorString))reply
+{
+	dispatch_async(dispatch_get_main_queue(), ^{
+		NuParser *parser = [Nu sharedParser];
+
+		NSXPCConnection *conn = [NSXPCConnection currentConnection];
+		if (conn) {
+			id<ViShellThingXPCProtocol> xpcProxy = [conn remoteObjectProxy];
+			ViXPCBackChannelProxy *backChannel = [[ViXPCBackChannelProxy alloc] initWithXPCProxy:xpcProxy];
+			[parser setValue:backChannel forKey:@"shellCommand"];
+		}
+
+		NSError *error = nil;
+		id result = [self eval:script withParser:parser bindings:bindings error:&error];
+		NSString *errorString = error ? [error localizedDescription] : nil;
+
+		NSString *resultJSON = nil;
+		if (result != nil && ![result isKindOfClass:[NSNull class]]) {
+			NSData *data = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+			if (data)
+				resultJSON = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+		}
+
+		reply(resultJSON, errorString);
+	});
+}
+
+- (void)openURL:(NSString *)pathOrURL
+        andWait:(BOOL)waitFlag
+      withReply:(void (^)(NSString *errorDescription))reply
+{
+	dispatch_async(dispatch_get_main_queue(), ^{
+		ViXPCBackChannelProxy *backChannel = nil;
+		if (waitFlag) {
+			NSXPCConnection *conn = [NSXPCConnection currentConnection];
+			if (conn) {
+				id<ViShellThingXPCProtocol> xpcProxy = [conn remoteObjectProxy];
+				backChannel = [[ViXPCBackChannelProxy alloc] initWithXPCProxy:xpcProxy];
+			}
+		}
+
+		[self openURLInternal:pathOrURL andWait:waitFlag backChannel:backChannel completion:^(NSError *error) {
+			reply(error ? [error localizedDescription] : nil);
+		}];
+	});
+}
+
+- (void)setStartupBasePath:(NSString *)basePath
+{
+	dispatch_async(dispatch_get_main_queue(), ^{
+		[[ViWindowController currentWindowController] setBaseURL:[NSURL fileURLWithPath:basePath]];
+	});
+}
+
+- (void)newDocumentWithData:(NSData *)data
+                    andWait:(BOOL)waitFlag
+                  withReply:(void (^)(NSString *errorDescription))reply
+{
+	dispatch_async(dispatch_get_main_queue(), ^{
+		ViXPCBackChannelProxy *backChannel = nil;
+		if (waitFlag) {
+			NSXPCConnection *conn = [NSXPCConnection currentConnection];
+			if (conn) {
+				id<ViShellThingXPCProtocol> xpcProxy = [conn remoteObjectProxy];
+				backChannel = [[ViXPCBackChannelProxy alloc] initWithXPCProxy:xpcProxy];
+			}
+		}
+
+		NSError *error = [self newDocumentWithDataInternal:data andWait:waitFlag backChannel:backChannel];
+		reply(error ? [error localizedDescription] : nil);
+	});
+}
+
+- (void)newProject
+{
+	dispatch_async(dispatch_get_main_queue(), ^{
+		[self newProject:nil];
+	});
+}
+
+#pragma mark XPC Launchd Plist
+
+- (void)installXPCLaunchdPlistIfNeeded
+{
+	NSString *launchAgentsDir = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/LaunchAgents"];
+	NSString *plistPath = [launchAgentsDir stringByAppendingPathComponent:@"se.bzero.vico.ipc.plist"];
+	NSFileManager *fm = [NSFileManager defaultManager];
+
+	if ([fm fileExistsAtPath:plistPath])
+		return;
+
+	[fm createDirectoryAtPath:launchAgentsDir withIntermediateDirectories:YES attributes:nil error:nil];
+
+	NSDictionary *plist = @{
+		@"Label": @"se.bzero.vico.ipc",
+		@"MachServices": @{
+			@"se.bzero.vico.ipc": @YES,
+		},
+	};
+
+	[plist writeToURL:[NSURL fileURLWithPath:plistPath] error:nil];
+
+	NSTask *task = [[NSTask alloc] init];
+	[task setExecutableURL:[NSURL fileURLWithPath:@"/bin/launchctl"]];
+	[task setArguments:@[@"bootstrap", [NSString stringWithFormat:@"gui/%u", (unsigned int)getuid()], plistPath]];
+	[task setStandardOutput:[NSFileHandle fileHandleWithNullDevice]];
+	[task setStandardError:[NSFileHandle fileHandleWithNullDevice]];
+	[task launchAndReturnError:nil];
+	[task waitUntilExit];
 }
 
 #pragma mark -

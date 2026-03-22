@@ -31,11 +31,13 @@
 
 - (id)init
 {
-	self = [super initWithNibName:@"ThemePrefs"
-				 name:@"Fonts & Colors"
-				 icon:[NSImage imageNamed:NSImageNameColorPanel]];
+	self = [super initWithNib:nil
+			     name:@"Fonts & Colors"
+			     icon:[NSImage imageNamed:NSImageNameColorPanel]];
 	if (self == nil)
 		return nil;
+
+	[self buildView];
 
 	ViThemeStore *ts = [ViThemeStore defaultStore];
 	NSArray *themes = [ts availableThemes];
@@ -55,6 +57,107 @@
 	[self setSelectedFont];
 
 	return self;
+}
+
+- (void)buildView
+{
+	NSUserDefaultsController *udc = [NSUserDefaultsController sharedUserDefaultsController];
+
+	// Root view (480×209)
+	view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 480, 209)];
+
+	// "Theme:" label at {17, 172, 52, 17}
+	NSTextField *themeLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(17, 172, 52, 17)];
+	[themeLabel setStringValue:@"Theme:"];
+	[themeLabel setEditable:NO];
+	[themeLabel setBordered:NO];
+	[themeLabel setDrawsBackground:NO];
+	[themeLabel setFont:[NSFont systemFontOfSize:13.0]];
+	[view addSubview:themeLabel];
+
+	// Theme popup at {71, 166, 307, 26}
+	themeButton = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(71, 166, 307, 26) pullsDown:NO];
+	[themeButton bind:@"selectedValue"
+		 toObject:udc
+	      withKeyPath:@"values.theme"
+		  options:nil];
+	[view addSubview:themeButton];
+
+	// "Font:" label at {31, 130, 38, 17}
+	NSTextField *fontLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(31, 130, 38, 17)];
+	[fontLabel setStringValue:@"Font:"];
+	[fontLabel setEditable:NO];
+	[fontLabel setBordered:NO];
+	[fontLabel setDrawsBackground:NO];
+	[fontLabel setFont:[NSFont systemFontOfSize:13.0]];
+	[view addSubview:fontLabel];
+
+	// Font display field at {74, 128, 301, 22}
+	currentFont = [[NSTextField alloc] initWithFrame:NSMakeRect(74, 128, 301, 22)];
+	[currentFont setEditable:NO];
+	[currentFont setSelectable:YES];
+	[currentFont setBezeled:YES];
+	[currentFont setDrawsBackground:YES];
+	[currentFont setFont:[NSFont systemFontOfSize:13.0]];
+	[view addSubview:currentFont];
+
+	// "Select..." button at {377, 120, 89, 32}
+	NSButton *selectButton = [[NSButton alloc] initWithFrame:NSMakeRect(377, 120, 89, 32)];
+	[selectButton setTitle:@"Select..."];
+	[selectButton setBezelStyle:NSBezelStyleRounded];
+	[selectButton setTarget:self];
+	[selectButton setAction:@selector(selectFont:)];
+	[view addSubview:selectButton];
+
+	// "Anti-alias" checkbox at {72, 104, 84, 18}
+	NSButton *antiAlias = [NSButton checkboxWithTitle:@"Anti-alias" target:nil action:nil];
+	[antiAlias setFrame:NSMakeRect(72, 104, 84, 18)];
+	[antiAlias bind:@"value" toObject:udc withKeyPath:@"values.antialias" options:nil];
+	[view addSubview:antiAlias];
+
+	// "Highlight current screen line" checkbox at {72, 84, 202, 18}
+	NSButton *cursorLine = [NSButton checkboxWithTitle:@"Highlight current screen line" target:nil action:nil];
+	[cursorLine setFrame:NSMakeRect(72, 84, 202, 18)];
+	[cursorLine bind:@"value" toObject:udc withKeyPath:@"values.cursorline" options:nil];
+	[view addSubview:cursorLine];
+
+	// "Highlight matching smart pairs" checkbox at {72, 64, 219, 18}
+	NSButton *matchParen = [NSButton checkboxWithTitle:@"Highlight matching smart pairs" target:nil action:nil];
+	[matchParen setFrame:NSMakeRect(72, 64, 219, 18)];
+	[matchParen bind:@"value" toObject:udc withKeyPath:@"values.matchparen" options:nil];
+	[view addSubview:matchParen];
+
+	// "Flash matching pair briefly" checkbox at {86, 44, 190, 18}
+	NSButton *flashParen = [NSButton checkboxWithTitle:@"Flash matching pair briefly" target:nil action:nil];
+	[flashParen setFrame:NSMakeRect(86, 44, 190, 18)];
+	[flashParen bind:@"value" toObject:udc withKeyPath:@"values.flashparen" options:nil];
+	[flashParen bind:@"enabled" toObject:udc withKeyPath:@"values.matchparen" options:nil];
+	[view addSubview:flashParen];
+
+	// "Blink caret in mode:" label at {71, 20, 130, 17}
+	NSTextField *blinkLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(71, 20, 130, 17)];
+	[blinkLabel setStringValue:@"Blink caret in mode:"];
+	[blinkLabel setEditable:NO];
+	[blinkLabel setBordered:NO];
+	[blinkLabel setDrawsBackground:NO];
+	[blinkLabel setFont:[NSFont systemFontOfSize:13.0]];
+	[view addSubview:blinkLabel];
+
+	// Blink mode popup at {203, 14, 145, 26}
+	NSPopUpButton *blinkMode = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(203, 14, 145, 26) pullsDown:NO];
+	[blinkMode addItemWithTitle:@"Insert mode"];
+	[[blinkMode lastItem] setTag:2];
+	[blinkMode addItemWithTitle:@"Normal mode"];
+	[[blinkMode lastItem] setTag:5];
+	[blinkMode addItemWithTitle:@"Both"];
+	[[blinkMode lastItem] setTag:7];
+	[blinkMode addItemWithTitle:@"Never"];
+	[[blinkMode lastItem] setTag:0];
+	[blinkMode bind:@"selectedTag"
+		toObject:udc
+	     withKeyPath:@"values.blinkmode"
+		 options:@{NSValueTransformerNameBindingOption: @"caretBlinkModeTransformer"}];
+	[view addSubview:blinkMode];
 }
 
 #pragma mark -

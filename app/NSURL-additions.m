@@ -56,7 +56,7 @@ static NSCharacterSet *__slashSet = nil;
 
 - (NSURL *)URLWithRelativeString:(NSString *)string
 {
-	return [[NSURL URLWithString:[string stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]
+	return [[NSURL URLWithString:[string stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]]
 		       relativeToURL:self] absoluteURL];
 }
 

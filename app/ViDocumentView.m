@@ -31,11 +31,35 @@
 
 @synthesize innerView;
 
+- (void)loadView
+{
+	NSView *rootView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 600, 400)];
+	[rootView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+
+	_scrollView = [[NSScrollView alloc] initWithFrame:[rootView bounds]];
+	[_scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[_scrollView setHasVerticalScroller:YES];
+	[_scrollView setHasHorizontalScroller:NO];
+	[_scrollView setBorderType:NSNoBorder];
+
+	NSTextView *textView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 600, 14)];
+	[textView setMinSize:NSMakeSize(223, 1)];
+	[textView setMaxSize:NSMakeSize(600, 10000000)];
+	[textView setVerticallyResizable:YES];
+	[textView setHorizontallyResizable:NO];
+	[[textView textContainer] setWidthTracksTextView:YES];
+
+	[_scrollView setDocumentView:textView];
+	innerView = textView;
+	[rootView addSubview:_scrollView];
+	[self setView:rootView];
+}
+
 - (ViDocumentView *)initWithDocument:(ViDocument *)aDocument
 {
-	if ((self = [super initWithNibName:@"ViDocument" bundle:nil]) != nil) {
+	if ((self = [super initWithNibName:nil bundle:nil]) != nil) {
 		MEMDEBUG(@"init %p", self);
-		[self loadView]; // Force loading of NIB
+		[self loadView];
 		[self setDocument:aDocument];
 	}
 	DEBUG_INIT();

@@ -75,8 +75,8 @@
 			NSArray *tmp = [comp componentsSeparatedByString:@"="];
 			if ([[tmp objectAtIndex:0] isEqualToString:@"url"]) {
 				/* Need to unescape/escape since bundles also escape '/', and NSURL doesn't like that. */
-				NSString *s = [[tmp objectAtIndex:1] stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
-				s = [s stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+				NSString *s = [[tmp objectAtIndex:1] stringByRemovingPercentEncoding];
+				s = [s stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
 				openURL = [NSURL URLWithString:s];
 				if ([openURL isFileURL])
 					openURL = [NSURL fileURLWithPath:[openURL path]];

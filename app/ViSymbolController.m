@@ -246,7 +246,7 @@
 
 - (IBAction)gotoSymbolAction:(id)sender
 {
-	if ([[NSApp currentEvent] modifierFlags] & NSAlternateKeyMask)
+	if ([[NSApp currentEvent] modifierFlags] & NSEventModifierFlagOption)
 		[self gotoSymbolByPosition:ViViewPositionSplitAbove];
 	else
 		[self gotoSymbolByPosition:ViViewPositionDefault];

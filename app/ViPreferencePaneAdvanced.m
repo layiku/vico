@@ -67,15 +67,139 @@
 
 - (id)init
 {
-	self = [super initWithNibName:@"AdvancedPrefs"
-				 name:@"Advanced"
-				 icon:[NSImage imageNamed:NSImageNameAdvanced]];
-	if (self != nil) {
-		[NSValueTransformer setValueTransformer:[[environmentVariableTransformer alloc] init]
-						forName:@"environmentVariableTransformer"];
-	}
+	self = [super initWithNib:nil
+			     name:@"Advanced"
+			     icon:[NSImage imageNamed:NSImageNameAdvanced]];
+	if (self == nil)
+		return nil;
+
+	[NSValueTransformer setValueTransformer:[[environmentVariableTransformer alloc] init]
+					forName:@"environmentVariableTransformer"];
+
+	[self buildView];
 
 	return self;
+}
+
+- (void)buildView
+{
+	NSUserDefaultsController *udc = [NSUserDefaultsController sharedUserDefaultsController];
+
+	// Root view (480×401)
+	view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 480, 401)];
+
+	// --- Environment variables section ---
+
+	// "Environment variables:" label at {17, 374, 155, 17}
+	NSTextField *envLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(17, 374, 155, 17)];
+	[envLabel setStringValue:@"Environment variables:"];
+	[envLabel setEditable:NO];
+	[envLabel setBordered:NO];
+	[envLabel setDrawsBackground:NO];
+	[envLabel setFont:[NSFont systemFontOfSize:13.0]];
+	[view addSubview:envLabel];
+
+	// NSArrayController for environment variables
+	arrayController = [[NSArrayController alloc] init];
+	[arrayController setObjectClass:[NSMutableDictionary class]];
+	[arrayController bind:@"contentArray"
+		     toObject:udc
+		  withKeyPath:@"values.environment"
+		      options:@{
+			NSValueTransformerNameBindingOption: @"environmentVariableTransformer",
+			@"NSHandlesContentAsCompoundValue": @YES
+		      }];
+
+	// NSScrollView + NSTableView at {18, 130, 444, 240}
+	NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(18, 130, 444, 240)];
+	[scrollView setHasVerticalScroller:YES];
+	[scrollView setHasHorizontalScroller:NO];
+	[scrollView setBorderType:NSBezelBorder];
+	[scrollView setAutohidesScrollers:YES];
+
+	tableView = [[NSTableView alloc] initWithFrame:NSMakeRect(0, 0, 444, 240)];
+	[tableView setAutosaveName:@"environmentTable"];
+	[tableView setAllowsColumnReordering:YES];
+	[tableView setAllowsColumnResizing:YES];
+	[tableView setAllowsMultipleSelection:NO];
+
+	// "Variable Name" column (144px)
+	NSTableColumn *nameColumn = [[NSTableColumn alloc] initWithIdentifier:@"name"];
+	[[nameColumn headerCell] setStringValue:@"Variable Name"];
+	[nameColumn setWidth:144];
+	[nameColumn setEditable:YES];
+	[nameColumn bind:@"value"
+		toObject:arrayController
+	     withKeyPath:@"arrangedObjects.name"
+		 options:nil];
+	[tableView addTableColumn:nameColumn];
+
+	// "Value" column (288px)
+	NSTableColumn *valueColumn = [[NSTableColumn alloc] initWithIdentifier:@"value"];
+	[[valueColumn headerCell] setStringValue:@"Value"];
+	[valueColumn setWidth:288];
+	[valueColumn setEditable:YES];
+	[valueColumn bind:@"value"
+		 toObject:arrayController
+	      withKeyPath:@"arrangedObjects.value"
+		  options:nil];
+	[tableView addTableColumn:valueColumn];
+
+	[scrollView setDocumentView:tableView];
+	[view addSubview:scrollView];
+
+	// Add (+) button at {18, 104, 25, 25}
+	NSButton *addButton = [[NSButton alloc] initWithFrame:NSMakeRect(18, 104, 25, 25)];
+	[addButton setTitle:@"+"];
+	[addButton setBezelStyle:NSBezelStyleSmallSquare];
+	[addButton setTarget:self];
+	[addButton setAction:@selector(addVariable:)];
+	[view addSubview:addButton];
+
+	// Remove (–) button at {42, 104, 25, 25}
+	NSButton *removeButton = [[NSButton alloc] initWithFrame:NSMakeRect(42, 104, 25, 25)];
+	[removeButton setTitle:@"\u2013"];
+	[removeButton setBezelStyle:NSBezelStyleSmallSquare];
+	[removeButton setTarget:arrayController];
+	[removeButton setAction:@selector(remove:)];
+	[view addSubview:removeButton];
+
+	// --- Separator at {12, 90, 456, 5} ---
+	NSBox *sep = [[NSBox alloc] initWithFrame:NSMakeRect(12, 90, 456, 5)];
+	[sep setBoxType:NSBoxSeparator];
+	[view addSubview:sep];
+
+	// --- Skip pattern section ---
+
+	// "Skip pattern:" label at {17, 62, 95, 17}
+	NSTextField *skipLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(17, 62, 95, 17)];
+	[skipLabel setStringValue:@"Skip pattern:"];
+	[skipLabel setEditable:NO];
+	[skipLabel setBordered:NO];
+	[skipLabel setDrawsBackground:NO];
+	[skipLabel setFont:[NSFont systemFontOfSize:13.0]];
+	[view addSubview:skipLabel];
+
+	// Skip pattern text field at {114, 58, 348, 22}
+	NSTextField *skipField = [[NSTextField alloc] initWithFrame:NSMakeRect(114, 58, 348, 22)];
+	[skipField setEditable:YES];
+	[skipField setBezeled:YES];
+	[skipField setDrawsBackground:YES];
+	[skipField bind:@"value" toObject:udc withKeyPath:@"values.skipPattern" options:nil];
+	[view addSubview:skipField];
+
+	// --- Separator at {12, 46, 456, 5} ---
+	NSBox *sep2 = [[NSBox alloc] initWithFrame:NSMakeRect(12, 46, 456, 5)];
+	[sep2 setBoxType:NSBoxSeparator];
+	[view addSubview:sep2];
+
+	// --- Develop menu section ---
+
+	// "Include Develop menu" checkbox at {18, 18, 180, 18}
+	NSButton *developMenu = [NSButton checkboxWithTitle:@"Include Develop menu" target:nil action:nil];
+	[developMenu setFrame:NSMakeRect(18, 18, 180, 18)];
+	[developMenu bind:@"value" toObject:udc withKeyPath:@"values.includedevelopmenu" options:nil];
+	[view addSubview:developMenu];
 }
 
 - (IBAction)addVariable:(id)sender

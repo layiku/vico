@@ -24,6 +24,7 @@
  */
 
 #import "ViTaskRunner.h"
+#import "ViWaitProgressUI.h"
 #import "NSTask-streaming.h"
 #import "ViCharsetDetector.h"
 #import "ViError.h"
@@ -49,7 +50,7 @@
 - (ViTaskRunner *)init
 {
 	if ((self = [super init]) != nil) {
-		if (![[NSBundle mainBundle] loadNibNamed:@"WaitProgress" owner:self topLevelObjects:nil]) {
+		if (![ViWaitProgressUI createWaitProgressWindowWithOwner:self]) {
 			return nil;
 		}
 	}
@@ -241,11 +242,10 @@ asynchronouslyInWindow:(NSWindow *)aWindow
 		[waitLabel setFont:[NSFont userFixedPitchFontOfSize:12.0]];
 		[progressIndicator startAnimation:self];
 		if (_window) {
-			[NSApp beginSheet:waitWindow
-			   modalForWindow:_window
-			    modalDelegate:self
-			   didEndSelector:@selector(waitSheetDidEnd:returnCode:contextInfo:)
-			      contextInfo:NULL];
+			NSWindow *sheet = waitWindow;
+			[_window beginSheet:sheet completionHandler:^(NSModalResponse returnCode) {
+				[self waitSheetDidEnd:sheet returnCode:(int)returnCode contextInfo:NULL];
+			}];
 		} else {
 			[_stream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSModalPanelRunLoopMode];
 			NSInteger ret = [NSApp runModalForWindow:waitWindow];

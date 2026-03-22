@@ -53,7 +53,7 @@
 	if (regName == '*' || regName == '+') {
 		NSPasteboard *pasteBoard = [NSPasteboard generalPasteboard];
 		[pasteBoard types];
-		return [pasteBoard stringForType:NSStringPboardType];	
+		return [pasteBoard stringForType:NSPasteboardTypeString];	
 	} else if (regName == '%') {
 		return [[[[ViWindowController currentWindowController] currentDocument] fileURL] absoluteString];
 	} else if (regName == '#') {
@@ -81,9 +81,9 @@
 
 	if (regName == '*' || regName == '+' || (regName == 0 && [[NSUserDefaults standardUserDefaults] boolForKey:@"clipboard"])) {
 		NSPasteboard *pasteBoard = [NSPasteboard generalPasteboard];
-		[pasteBoard declareTypes:[NSArray arrayWithObjects:NSStringPboardType, nil]
+		[pasteBoard declareTypes:[NSArray arrayWithObjects:NSPasteboardTypeString, nil]
 				   owner:nil];
-		[pasteBoard setString:content forType:NSStringPboardType];
+		[pasteBoard setString:content forType:NSPasteboardTypeString];
 	}
 
 	/* Uppercase registers append. */

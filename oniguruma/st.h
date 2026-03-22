@@ -11,9 +11,13 @@ typedef unsigned long st_data_t;
 
 typedef struct st_table st_table;
 
+typedef int (*st_compare_func)(st_data_t, st_data_t);
+typedef int (*st_hash_func)(st_data_t);
+typedef int (*st_foreach_func)(st_data_t, st_data_t, st_data_t);
+
 struct st_hash_type {
-    int (*compare)();
-    int (*hash)();
+    st_compare_func compare;
+    st_hash_func hash;
 };
 
 struct st_table {
@@ -27,35 +31,24 @@ struct st_table {
 
 enum st_retval {ST_CONTINUE, ST_STOP, ST_DELETE, ST_CHECK};
 
-#ifndef _
-# define _(args) args
-#endif
-#ifndef ANYARGS
-# ifdef __cplusplus
-#   define ANYARGS ...
-# else
-#   define ANYARGS
-# endif
-#endif
+st_table *st_init_table(struct st_hash_type *);
+st_table *st_init_table_with_size(struct st_hash_type *, int);
+st_table *st_init_numtable(void);
+st_table *st_init_numtable_with_size(int);
+st_table *st_init_strtable(void);
+st_table *st_init_strtable_with_size(int);
+int st_delete(st_table *, st_data_t *, st_data_t *);
+int st_delete_safe(st_table *, st_data_t *, st_data_t *, st_data_t);
+int st_insert(st_table *, st_data_t, st_data_t);
+int st_lookup(st_table *, st_data_t, st_data_t *);
+int st_foreach(st_table *, st_foreach_func, st_data_t);
+void st_add_direct(st_table *, st_data_t, st_data_t);
+void st_free_table(st_table *);
+void st_cleanup_safe(st_table *, st_data_t);
+st_table *st_copy(st_table *);
 
-st_table *st_init_table _((struct st_hash_type *));
-st_table *st_init_table_with_size _((struct st_hash_type *, int));
-st_table *st_init_numtable _((void));
-st_table *st_init_numtable_with_size _((int));
-st_table *st_init_strtable _((void));
-st_table *st_init_strtable_with_size _((int));
-int st_delete _((st_table *, st_data_t *, st_data_t *));
-int st_delete_safe _((st_table *, st_data_t *, st_data_t *, st_data_t));
-int st_insert _((st_table *, st_data_t, st_data_t));
-int st_lookup _((st_table *, st_data_t, st_data_t *));
-int st_foreach _((st_table *, int (*)(ANYARGS), st_data_t));
-void st_add_direct _((st_table *, st_data_t, st_data_t));
-void st_free_table _((st_table *));
-void st_cleanup_safe _((st_table *, st_data_t));
-st_table *st_copy _((st_table *));
-
-#define ST_NUMCMP	((int (*)()) 0)
-#define ST_NUMHASH	((int (*)()) -2)
+#define ST_NUMCMP	((st_compare_func) 0)
+#define ST_NUMHASH	((st_hash_func) -2)
 
 #define st_numcmp	ST_NUMCMP
 #define st_numhash	ST_NUMHASH

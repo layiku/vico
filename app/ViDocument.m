@@ -231,8 +231,8 @@ DEBUG_FINALIZE();
 			[alert setInformativeText:@"Are you sure you want to continue opening the file?"];
 			NSUInteger ret = [alert runModal];
 			if (ret == NSAlertSecondButtonReturn) {
-				DEBUG(@"cancelling deferred %@", _loader);
-				[_loader cancel];
+                DEBUG(@"cancelling deferred %@", self->_loader);
+                [self->_loader cancel];
 				[self setLoader:nil];
 				return;
 			}
@@ -243,8 +243,8 @@ DEBUG_FINALIZE();
 		[self addData:data];
 		firstChunk = NO;
 
-		if ([_loader respondsToSelector:@selector(progress)]) {
-			CGFloat progress = [_loader progress];
+		if ([self->_loader respondsToSelector:@selector(progress)]) {
+			CGFloat progress = [self->_loader progress];
 			if (progress >= 0)
 				[self message:@"%.1f%% loaded", progress * 100.0];
 		}
@@ -273,12 +273,12 @@ DEBUG_FINALIZE();
 				DEBUG(@"self is %@", self);
 				[self message:@"cancelled loading of %@", normalizedURL];
 				[self setFileURL:nil];
-				if (_closeCallback)
-					_closeCallback(2);
+				if (self->_closeCallback)
+                    self->_closeCallback(2);
 				[self setCloseCallback:nil];
 			} else {
 				/* Make sure this document has focus, then show an alert sheet. */
-				[_windowController displayDocument:self positioned:ViViewPositionDefault];
+                [self->_windowController displayDocument:self positioned:ViViewPositionDefault];
 				[self setFileURL:nil];
 
 				NSAlert *alert = [[NSAlert alloc] init];
@@ -286,12 +286,11 @@ DEBUG_FINALIZE();
 					normalizedURL]];
 				[alert addButtonWithTitle:@"OK"];
 				[alert setInformativeText:[error localizedDescription]];
-				[alert beginSheetModalForWindow:[_windowController window]
-						  modalDelegate:self
-						 didEndSelector:@selector(openFailedAlertDidEnd:returnCode:contextInfo:)
-						    contextInfo:nil];
-				if (_closeCallback)
-					_closeCallback(3);
+                [alert beginSheetModalForWindow:[self->_windowController window] completionHandler:^(NSModalResponse returnCode) {
+					[self openFailedAlertDidEnd:alert returnCode:returnCode contextInfo:nil];
+				}];
+				if (self->_closeCallback)
+                    self->_closeCallback(3);
 				[self setCloseCallback:nil];
 			}
 		} else {
@@ -299,7 +298,7 @@ DEBUG_FINALIZE();
 			[self setFileModificationDate:[attributes fileModificationDate]];
 			[self setIsTemporary:NO];
 			[self setFileURL:normalizedURL];
-			[self message:@"%@: %lu lines", [self title], [_textStorage lineCount]];
+            [self message:@"%@: %lu lines", [self title], [self->_textStorage lineCount]];
 
 			[[NSNotificationCenter defaultCenter] postNotificationName:ViDocumentLoadedNotification 
 									    object:self];
@@ -380,8 +379,8 @@ DEBUG_FINALIZE();
 		   [keyPath isEqualToString:@"linebreak"]) {
 		[self eachTextView:^(ViTextView *tv) {
 			ViLayoutManager *lm = (ViLayoutManager *)[tv layoutManager];
-			[lm setInvisiblesAttributes:[_theme invisiblesAttributes]];
-			[lm invalidateDisplayForCharacterRange:NSMakeRange(0, [_textStorage length])];
+            [lm setInvisiblesAttributes:[self->_theme invisiblesAttributes]];
+            [lm invalidateDisplayForCharacterRange:NSMakeRange(0, [self->_textStorage length])];
 			[tv updateFont];
 		}];
 		[self setTypingAttributes];
@@ -390,7 +389,7 @@ DEBUG_FINALIZE();
 		[self eachTextView:^(ViTextView *tv) {
 			ViLayoutManager *lm = (ViLayoutManager *)[tv layoutManager];
 			[lm setShowsInvisibleCharacters:[userDefaults boolForKey:@"list"]];
-			[lm invalidateDisplayForCharacterRange:NSMakeRange(0, [_textStorage length])];
+            [lm invalidateDisplayForCharacterRange:NSMakeRange(0, [self->_textStorage length])];
 		}];
 	} else if ([keyPath isEqualToString:@"matchparen"]) {
 		if ([userDefaults boolForKey:keyPath])
@@ -618,16 +617,8 @@ DEBUG_FINALIZE();
 	DEBUG(@"didRecover = %s", didRecover ? "YES" : "NO");
 }
 
-- (void)continueSavingAfterError:(NSError *)error
+- (void)finishSaveWithError:(NSError *)error didSave:(BOOL)didSave
 {
-	BOOL didSave = NO;
-	if (error == nil) {
-		didSave = [self saveToURL:[self fileURL]
-				   ofType:[self fileType]
-			 forSaveOperation:NSSaveOperation
-				    error:&error];
-	}
-
 	if (error && !([[error domain] isEqualToString:NSCocoaErrorDomain] && [error code] == NSUserCancelledError))
 		[NSApp presentError:error];
 
@@ -647,6 +638,21 @@ DEBUG_FINALIZE();
 	_didSaveDelegate = nil;
 	_didSaveSelector = nil;
 	_didSaveContext = NULL;
+}
+
+- (void)continueSavingAfterError:(NSError *)error
+{
+	if (error != nil) {
+		[self finishSaveWithError:error didSave:NO];
+		return;
+	}
+
+	[self saveToURL:[self fileURL]
+		 ofType:[self fileType]
+       forSaveOperation:NSSaveOperation
+      completionHandler:^(NSError *saveError) {
+		[self finishSaveWithError:saveError didSave:(saveError == nil)];
+	}];
 }
 
 - (void)fileModifiedAlertDidEnd:(NSAlert *)alert
@@ -709,10 +715,9 @@ DEBUG_FINALIZE();
 			[alert addButtonWithTitle:@"Don't Save"];
 			[alert addButtonWithTitle:@"Save"];
 			[alert setInformativeText:@"The changes made by the other application will be lost if you save. Save anyway?"];
-			[alert beginSheetModalForWindow:[_windowController window]
-					  modalDelegate:self
-					 didEndSelector:@selector(fileModifiedAlertDidEnd:returnCode:contextInfo:)
-					    contextInfo:nil];
+			[alert beginSheetModalForWindow:[_windowController window] completionHandler:^(NSModalResponse returnCode) {
+				[self fileModifiedAlertDidEnd:alert returnCode:returnCode contextInfo:nil];
+			}];
 		} else {
 			[self continueSavingAfterError:error];
 		}
@@ -777,9 +782,9 @@ DEBUG_FINALIZE();
 					[[ViEventManager defaultManager] emit:ViEventDidSaveAsDocument for:self with:self, normalizedURL, nil];
 			}
 
-			if (_isTemporary)
+            if (self->_isTemporary)
 				[[ViURLManager defaultManager] notifyChangedDirectoryAtURL:[normalizedURL URLByDeletingLastPathComponent]];
-			_isTemporary = NO;
+            self->_isTemporary = NO;
 		}
 	}];
 
@@ -800,10 +805,10 @@ DEBUG_FINALIZE();
 	return YES;
 }
 
-- (BOOL)saveToURL:(NSURL *)absoluteURL
+- (void)saveToURL:(NSURL *)absoluteURL
            ofType:(NSString *)typeName
  forSaveOperation:(NSSaveOperationType)saveOperation
-            error:(NSError **)outError
+completionHandler:(void (^)(NSError *errorOrNil))completionHandler
 {
 	DEBUG(@"saving %@ to %@", self, absoluteURL);
 
@@ -813,15 +818,17 @@ DEBUG_FINALIZE();
 		[[ViEventManager defaultManager] emit:ViEventWillSaveAsDocument for:self with:self, absoluteURL, nil];
 	[self endUndoGroup];
 
+	NSError *error = nil;
 	if ([self writeSafelyToURL:absoluteURL
 			    ofType:typeName
 		  forSaveOperation:saveOperation
-			     error:outError]) {
+			     error:&error]) {
 		_ignoreChangeCountNotification = YES;
 		[[self nextRunloop] setIgnoreChangeCountNotification:NO];
-		return YES;
+		if (completionHandler) completionHandler(nil);
+	} else {
+		if (completionHandler) completionHandler(error);
 	}
-	return NO;
 }
 
 - (NSString *)suggestEncoding:(NSStringEncoding *)outEncoding forData:(NSData *)data
@@ -1125,14 +1132,14 @@ didCompleteLayoutForTextContainer:(NSTextContainer *)aTextContainer
 {
 	if (_matchingParenRange.location != NSNotFound)
 		[self eachTextView:^(ViTextView *tv) {
-			[[tv layoutManager] invalidateDisplayForCharacterRange:_matchingParenRange];
+            [[tv layoutManager] invalidateDisplayForCharacterRange:self->_matchingParenRange];
 		}];
 
 	_matchingParenRange = range;
 
 	if (_matchingParenRange.location != NSNotFound)
 		[self eachTextView:^(ViTextView *tv) {
-			[[tv layoutManager] invalidateDisplayForCharacterRange:_matchingParenRange];
+            [[tv layoutManager] invalidateDisplayForCharacterRange:self->_matchingParenRange];
 		}];
 }
 
@@ -1485,13 +1492,13 @@ didCompleteLayoutForTextContainer:(NSTextContainer *)aTextContainer
 	}
 }
 
-- (void)textStorageDidProcessEditing:(NSNotification *)notification
+- (void)textStorage:(NSTextStorage *)textStorage didProcessEditing:(NSTextStorageEditActions)editedMask range:(NSRange)editedRange changeInLength:(NSInteger)delta
 {
-	if (([_textStorage editedMask] & NSTextStorageEditedCharacters) != NSTextStorageEditedCharacters)
+	if ((editedMask & NSTextStorageEditedCharacters) != NSTextStorageEditedCharacters)
 		return;
 
-	NSRange area = [_textStorage editedRange];
-	NSInteger diff = [_textStorage changeInLength];
+	NSRange area = editedRange;
+	NSInteger diff = delta;
 
 	DEBUG(@"edited range %@, diff is %li", NSStringFromRange(area), diff);
 
@@ -1566,7 +1573,7 @@ didCompleteLayoutForTextContainer:(NSTextContainer *)aTextContainer
 
 - (IBAction)toggleLineNumbers:(id)sender
 {
-	[self enableLineNumbers:[sender state] == NSOffState relative:[[NSUserDefaults standardUserDefaults] boolForKey:@"relativenumber"]];
+	[self enableLineNumbers:[sender state] == NSControlStateValueOff relative:[[NSUserDefaults standardUserDefaults] boolForKey:@"relativenumber"]];
 }
 
 #pragma mark -
@@ -1639,7 +1646,7 @@ didCompleteLayoutForTextContainer:(NSTextContainer *)aTextContainer
 {
 	NSInteger pageGuideColumn = 0;
 	NSUserDefaults *defs = [NSUserDefaults standardUserDefaults];
-	if ([defs boolForKey:@"showguide"] == NSOnState)
+	if ([defs boolForKey:@"showguide"] == NSControlStateValueOn)
 		pageGuideColumn = [defs integerForKey:@"guidecolumn"];
 
 	[self eachTextView:^(ViTextView *tv) {
@@ -1951,7 +1958,7 @@ didCompleteLayoutForTextContainer:(NSTextContainer *)aTextContainer
 	// The list of ranges that we won't be setting to have the new fold.
 	[self.textStorage enumerateAttribute:ViFoldAttributeName
 								 inRange:range
-								 options:NULL
+								 options:0
 							  usingBlock:^(ViFold *overlappingFold, NSRange overlappingFoldRange, BOOL *stop) {
 		if (overlappingFold == newFold.parent) {
 			// If the overlapping fold is the same as the new fold's parent, then
@@ -2077,7 +2084,7 @@ didCompleteLayoutForTextContainer:(NSTextContainer *)aTextContainer
 	__block NSValue *totalClosedRange = [NSValue valueWithRange:NSMakeRange(foldStart, 0)];
 	[self.textStorage enumerateAttribute:ViFoldAttributeName
 								 inRange:NSMakeRange(foldStart, [self.textStorage length] - foldStart)
-								 options:NULL
+								 options:0
 							  usingBlock:^(ViFold *currentFold, NSRange currentFoldRange, BOOL *stop) {
 		if (! currentFold) {
 			*stop = YES;
@@ -2180,7 +2187,7 @@ didCompleteLayoutForTextContainer:(NSTextContainer *)aTextContainer
 	__block NSValue *totalOpenedRange = [NSValue valueWithRange:NSMakeRange(foldStart, 0)];
 	[self.textStorage enumerateAttribute:ViFoldAttributeName
 								 inRange:NSMakeRange(foldStart, [self.textStorage length] - foldStart)
-								 options:NULL
+								 options:0
 							  usingBlock:^(ViFold *currentFold, NSRange currentFoldRange, BOOL *stop) {
 		if (! currentFold) {
 			*stop = YES;
@@ -2250,7 +2257,7 @@ didCompleteLayoutForTextContainer:(NSTextContainer *)aTextContainer
 	__block ViFold *lastFold = nil;
 	[self.textStorage enumerateAttribute:ViFoldAttributeName
 								 inRange:NSMakeRange(aLocation, [self.textStorage length] - aLocation)
-								 options:NULL
+								 options:0
 							  usingBlock:^(ViFold *currentFold, NSRange currentFoldRange, BOOL *stop) {
 		// Stop if this isn't the first fold and the current fold isn't
 		// contiguous with the previous one, or if this isn't the first fold
@@ -2399,11 +2406,13 @@ didCompleteLayoutForTextContainer:(NSTextContainer *)aTextContainer
 		if (normalizedURL && !command.force)
 			return [ViError message:@"File exists (add ! to override)"];
 
-		if ([self saveToURL:newURL
-			     ofType:nil
-		   forSaveOperation:NSSaveAsOperation
-			      error:&error] == NO)
-			return error;
+		[self saveToURL:newURL
+			 ofType:[self fileType]
+		forSaveOperation:NSSaveAsOperation
+	       completionHandler:^(NSError *saveError) {
+			if (saveError)
+				[command message:[saveError localizedDescription]];
+		}];
 	}
 
 	return nil;

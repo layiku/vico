@@ -38,15 +38,15 @@ struct st_table_entry {
 static int numcmp(long, long);
 static int numhash(long);
 static struct st_hash_type type_numhash = {
-    numcmp,
-    numhash,
+    (int (*)(st_data_t, st_data_t))numcmp,
+    (int (*)(st_data_t))numhash,
 };
 
 /* extern int strcmp(const char *, const char *); */
 static int strhash(const char *);
 static struct st_hash_type type_strhash = {
-    strcmp,
-    strhash,
+    (int (*)(st_data_t, st_data_t))strcmp,
+    (int (*)(st_data_t))strhash,
 };
 
 static void rehash(st_table *);
@@ -101,8 +101,7 @@ static const long primes[] = {
 };
 
 static int
-new_size(size)
-    int size;
+new_size(int size)
 {
     int i;
 
@@ -130,7 +129,7 @@ static int collision = 0;
 static int init_st = 0;
 
 static void
-stat_col()
+stat_col(void)
 {
     FILE *f = fopen("/tmp/col", "w");
     fprintf(f, "collision: %d\n", collision);
@@ -139,9 +138,7 @@ stat_col()
 #endif
 
 st_table*
-st_init_table_with_size(type, size)
-    struct st_hash_type *type;
-    int size;
+st_init_table_with_size(struct st_hash_type *type, int size)
 {
     st_table *tbl;
 
@@ -164,8 +161,7 @@ st_init_table_with_size(type, size)
 }
 
 st_table*
-st_init_table(type)
-    struct st_hash_type *type;
+st_init_table(struct st_hash_type *type)
 {
     return st_init_table_with_size(type, 0);
 }
@@ -177,8 +173,7 @@ st_init_numtable(void)
 }
 
 st_table*
-st_init_numtable_with_size(size)
-    int size;
+st_init_numtable_with_size(int size)
 {
     return st_init_table_with_size(&type_numhash, size);
 }
@@ -190,15 +185,13 @@ st_init_strtable(void)
 }
 
 st_table*
-st_init_strtable_with_size(size)
-    int size;
+st_init_strtable_with_size(int size)
 {
     return st_init_table_with_size(&type_strhash, size);
 }
 
 void
-st_free_table(table)
-    st_table *table;
+st_free_table(st_table *table)
 {
     register st_table_entry *ptr, *next;
     int i;
@@ -237,10 +230,7 @@ st_free_table(table)
 } while (0)
 
 int
-st_lookup(table, key, value)
-    st_table *table;
-    register st_data_t key;
-    st_data_t *value;
+st_lookup(st_table *table, register st_data_t key, st_data_t *value)
 {
     unsigned int hash_val, bin_pos;
     register st_table_entry *ptr;
@@ -276,10 +266,7 @@ do {\
 } while (0)
 
 int
-st_insert(table, key, value)
-    register st_table *table;
-    register st_data_t key;
-    st_data_t value;
+st_insert(register st_table *table, register st_data_t key, st_data_t value)
 {
     unsigned int hash_val, bin_pos;
     register st_table_entry *ptr;
@@ -298,10 +285,7 @@ st_insert(table, key, value)
 }
 
 void
-st_add_direct(table, key, value)
-    st_table *table;
-    st_data_t key;
-    st_data_t value;
+st_add_direct(st_table *table, st_data_t key, st_data_t value)
 {
     unsigned int hash_val, bin_pos;
 
@@ -311,8 +295,7 @@ st_add_direct(table, key, value)
 }
 
 static void
-rehash(table)
-    register st_table *table;
+rehash(register st_table *table)
 {
     register st_table_entry *ptr, *next, **new_bins;
     int i, old_num_bins = table->num_bins, new_num_bins;
@@ -337,8 +320,7 @@ rehash(table)
 }
 
 st_table*
-st_copy(old_table)
-    st_table *old_table;
+st_copy(st_table *old_table)
 {
     st_table *new_table;
     st_table_entry *ptr, *entry;
@@ -378,10 +360,7 @@ st_copy(old_table)
 }
 
 int
-st_delete(table, key, value)
-    register st_table *table;
-    register st_data_t *key;
-    st_data_t *value;
+st_delete(register st_table *table, register st_data_t *key, st_data_t *value)
 {
     unsigned int hash_val;
     st_table_entry *tmp;
@@ -420,11 +399,7 @@ st_delete(table, key, value)
 }
 
 int
-st_delete_safe(table, key, value, never)
-    register st_table *table;
-    register st_data_t *key;
-    st_data_t *value;
-    st_data_t never;
+st_delete_safe(register st_table *table, register st_data_t *key, st_data_t *value, st_data_t never)
 {
     unsigned int hash_val;
     register st_table_entry *ptr;
@@ -451,22 +426,15 @@ st_delete_safe(table, key, value, never)
 }
 
 static int
-#if defined(__GNUC__)
-delete_never(st_data_t key __attribute__ ((unused)), st_data_t value,
-	     st_data_t never)
-#else
-delete_never(key, value, never)
-    st_data_t key, value, never;
-#endif
+delete_never(st_data_t key, st_data_t value, st_data_t never)
 {
+    (void)key;
     if (value == never) return ST_DELETE;
     return ST_CONTINUE;
 }
 
 void
-st_cleanup_safe(table, never)
-    st_table *table;
-    st_data_t never;
+st_cleanup_safe(st_table *table, st_data_t never)
 {
     int num_entries = table->num_entries;
 
@@ -475,10 +443,7 @@ st_cleanup_safe(table, never)
 }
 
 int
-st_foreach(table, func, arg)
-    st_table *table;
-    int (*func)();
-    st_data_t arg;
+st_foreach(st_table *table, st_foreach_func func, st_data_t arg)
 {
     st_table_entry *ptr, *last, *tmp;
     enum st_retval retval;
@@ -525,8 +490,7 @@ st_foreach(table, func, arg)
 }
 
 static int
-strhash(string)
-    register const char *string;
+strhash(const char *string)
 {
     register int c;
 
@@ -564,15 +528,13 @@ strhash(string)
 }
 
 static int
-numcmp(x, y)
-    long x, y;
+numcmp(long x, long y)
 {
     return x != y;
 }
 
 static int
-numhash(n)
-    long n;
+numhash(long n)
 {
     return (int)n;
 }

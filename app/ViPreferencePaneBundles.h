@@ -36,7 +36,7 @@
 }
 @end
 
-@interface ViPreferencePaneBundles : ViPreferencePane <NSURLConnectionDelegate>
+@interface ViPreferencePaneBundles : ViPreferencePane <NSURLSessionDownloadDelegate>
 {
 	IBOutlet NSTextField		*bundlesInfo;
 	IBOutlet NSArrayController	*bundlesController;
@@ -60,17 +60,14 @@
 	NSArray				*_previousRepoUsers;
 	NSURL				*_repoURL;
 	int				_repoPage;
-	NSURLConnection			*_repoConnection;
-	NSMutableData			*_repoData;
+	NSURLSession			*_session;
+	NSURLSessionDataTask		*_repoTask;
 	NSMutableArray			*_repoJson;
 
-
-	NSURLConnection			*_userConnection;
-	NSMutableData			*_userData;
+	NSURLSessionDataTask		*_userTask;
 
 	NSTask				*_installTask;
-	NSPipe				*_installPipe;
-	NSURLConnection			*_installConnection;
+	NSURLSessionDownloadTask	*_downloadTask;
 }
 
 @property (nonatomic,readwrite,strong) NSArray *filteredRepositories;

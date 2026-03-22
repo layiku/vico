@@ -81,16 +81,16 @@
 				switch (c)
 				{
 				case '^':
-					keyflags |= NSControlKeyMask;
+					keyflags |= NSEventModifierFlagControl;
 					break;
 				case '@':
-					keyflags |= NSCommandKeyMask;
+					keyflags |= NSEventModifierFlagCommand;
 					break;
 				case '~':
-					keyflags |= NSAlternateKeyMask;
+					keyflags |= NSEventModifierFlagOption;
 					break;
 				case '$':
-					keyflags |= NSShiftKeyMask;
+					keyflags |= NSEventModifierFlagShift;
 					break;
 				default:
 					INFO(@"unknown key modifier '%C'", c);
@@ -100,7 +100,7 @@
 
 			_modifierMask = keyflags;
 
-			if (keyflags == NSControlKeyMask) {
+			if (keyflags == NSEventModifierFlagControl) {
 				if (_keyCode >= 'a' && _keyCode <= 'z') {
 					keyflags = 0;
 					_keyCode = _keyCode - 'a' + 1;
@@ -111,21 +111,21 @@
 			}
 
 			if ([_keyEquivalent isUppercase])
-				keyflags |= NSShiftKeyMask;
+				keyflags |= NSEventModifierFlagShift;
 
 			/* Same test as in keyDown: */
 			if ((0x20 < _keyCode && _keyCode < 0x7f) || _keyCode == 0x1E)
-				keyflags &= ~NSShiftKeyMask;
+				keyflags &= ~NSEventModifierFlagShift;
 
 			_keyCode |= keyflags;
 
 			DEBUG(@"parsed key equivalent [%@] as [%@] keycode 0x%04x,"
 			    " flags 0x%04X: s=%s, c=%s, a=%s, C=%s, name is %@",
 			    key, _keyEquivalent, _keyCode, keyflags,
-			    (keyflags & NSShiftKeyMask) ? "YES" : "NO",
-			    (keyflags & NSControlKeyMask) ? "YES" : "NO",
-			    (keyflags & NSAlternateKeyMask) ? "YES" : "NO",
-			    (keyflags & NSCommandKeyMask) ? "YES" : "NO", _name);
+			    (keyflags & NSEventModifierFlagShift) ? "YES" : "NO",
+			    (keyflags & NSEventModifierFlagControl) ? "YES" : "NO",
+			    (keyflags & NSEventModifierFlagOption) ? "YES" : "NO",
+			    (keyflags & NSEventModifierFlagCommand) ? "YES" : "NO", _name);
 		
 			if (_keyCode == 0x1B) {
 				/* Prevent mapping of escape. */

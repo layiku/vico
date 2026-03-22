@@ -33,6 +33,8 @@
 #include <signal.h>
 
 #import "ViTextView.h"
+#import "ViAppController.h"
+#import "ViDocumentController.h"
 
 pthread_mutex_t onig_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -56,6 +58,17 @@ main(int argc, char *argv[])
 		if (strcmp(argv[i], "-skip-untitled") == 0)
 			openUntitledDocument = NO;
 	}
+
+	/* Create NSApplication, app delegate, and document controller
+	 * before NSApplicationMain since there is no main nib. */
+	[NSApplication sharedApplication];
+
+	ViAppController *appController = [[ViAppController alloc] init];
+	[NSApp setDelegate:appController];
+
+	/* ViDocumentController must be created before any document operations.
+	 * First alloc of NSDocumentController subclass becomes the shared instance. */
+	(void)[[ViDocumentController alloc] init];
 
 	return NSApplicationMain(argc, (const char **) argv);
 }

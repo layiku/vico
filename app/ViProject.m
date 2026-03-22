@@ -62,32 +62,36 @@
 		if ([documentProperties objectForKey:@"url"]) { // this is a regular document
 			NSURL *documentURL = [NSURL URLWithString:[documentProperties objectForKey:@"url"]];
 
-			ViDocumentView *documentView = nil;
 			if (documentIndex == [documents count] - 1) {
-				id possibleDocument = [documentController openDocumentWithContentsOfURL:documentURL display:NO error:nil];
-				if ([possibleDocument isKindOfClass:[ViDocument class]]) {
-					ViDocument *document = (ViDocument *)possibleDocument;
+				NSUInteger line = [[documentProperties objectForKey:@"line"] unsignedIntegerValue];
+				NSUInteger column = [[documentProperties objectForKey:@"column"] unsignedIntegerValue];
+				[documentController openDocumentWithContentsOfURL:documentURL display:NO completionHandler:^(NSDocument *openedDocument, BOOL wasOpen, NSError *error) {
+					if (![openedDocument isKindOfClass:[ViDocument class]])
+						return;
+					ViDocument *document = (ViDocument *)openedDocument;
 
 					if (isTopLevel) {
-						[_windowController createTabForDocument:document];
+                        [self->_windowController createTabForDocument:document];
 					}
-					if (! [[_windowController window] isKeyWindow]) {
-						[[_windowController window] makeKeyAndOrderFront:nil];
+					if (! [[self->_windowController window] isKeyWindow]) {
+						[[self->_windowController window] makeKeyAndOrderFront:nil];
 					}
-					[_windowController displayDocument:document positioned:ViViewPositionReplace];
+					[self->_windowController displayDocument:document positioned:ViViewPositionReplace];
 
-					documentView = [_windowController viewForDocument:document];
-				}
+					ViDocumentView *documentView = [self->_windowController viewForDocument:document];
+					if ([documentURL isEqual:selectedDocumentURL]) {
+						documentViewToSelect = documentView;
+					}
+					[[documentView textView] gotoLine:line column:column];
+				}];
 			} else {
-				documentView = [_windowController splitVertically:isVertical andOpen:documentURL];
+				ViDocumentView *documentView = [_windowController splitVertically:isVertical andOpen:documentURL];
+				if ([documentURL isEqual:selectedDocumentURL]) {
+					documentViewToSelect = documentView;
+				}
+				[[documentView textView] gotoLine:[[documentProperties objectForKey:@"line"] unsignedIntegerValue]
+								   column:[[documentProperties objectForKey:@"column"] unsignedIntegerValue]];
 			}
-
-			if ([documentURL isEqual:selectedDocumentURL]) {
-				documentViewToSelect = documentView;
-			}
-
-			[[documentView textView] gotoLine:[[documentProperties objectForKey:@"line"] unsignedIntegerValue]
-									   column:[[documentProperties objectForKey:@"column"] unsignedIntegerValue]];
 		} else { // this is information regarding an internal split
 			// We'll deal with these guys again in a minute to actually unpack them;
 			// for now, we're just handling this level of splits.

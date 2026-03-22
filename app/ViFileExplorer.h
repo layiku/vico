@@ -34,7 +34,7 @@
 @class ViWindowController;
 @class ViBgView;
 
-@interface ViFileExplorer : NSObject <NSOutlineViewDataSource, NSOutlineViewDelegate, ViJumpListDelegate, ViKeyManagerTarget, NSMenuDelegate>
+@interface ViFileExplorer : NSObject <NSOutlineViewDataSource, NSOutlineViewDelegate, ViJumpListDelegate, ViKeyManagerTarget, NSMenuDelegate, NSSearchFieldDelegate, NSMenuItemValidation>
 {
 	IBOutlet NSWindow		*window;
 	IBOutlet ViWindowController	*windowController;
@@ -45,7 +45,9 @@
 	IBOutlet NSSplitView		*splitView;
 	IBOutlet ViBgView		*explorerView;
 	IBOutlet NSWindow		*sftpConnectView;
-	IBOutlet NSForm			*sftpConnectForm;
+	NSTextField			*sftpHostField;
+	NSTextField			*sftpUserField;
+	NSTextField			*sftpPathField;
 	IBOutlet NSScrollView		*scrollView;
 	IBOutlet ViToolbarPopUpButtonCell *actionButtonCell;
 	IBOutlet NSPopUpButton		*actionButton;

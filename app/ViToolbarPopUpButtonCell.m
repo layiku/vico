@@ -31,16 +31,18 @@
 - (void)setImage:(NSImage *)anImage
 {
 	_image = anImage;
-	[_image setFlipped:YES];
 }
 
 
 - (void)drawInteriorWithFrame:(NSRect)cellFrame inView:(NSView *)controlView
 {
 	NSSize sz = [_image size];
-	NSPoint p = NSMakePoint((cellFrame.size.width - sz.width) / 2.0,
-	                        (cellFrame.size.height - sz.height) / 2.0);
-	[_image drawAtPoint:p fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
+	NSRect rect = NSMakeRect((cellFrame.size.width - sz.width) / 2.0,
+	                         (cellFrame.size.height - sz.height) / 2.0,
+	                         sz.width, sz.height);
+	[_image drawInRect:rect fromRect:NSZeroRect
+	         operation:NSCompositingOperationSourceOver fraction:1.0
+	    respectFlipped:YES hints:nil];
 }
 
 @end

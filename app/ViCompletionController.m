@@ -25,6 +25,7 @@
 
 #import "NSString-additions.h"
 #import "ViCompletionController.h"
+#import "ViCompletionWindow.h"
 #import "ViCommand.h"
 #import "ViKeyManager.h"
 #import "ViRegexp.h"
@@ -54,18 +55,62 @@
 - (id)init
 {
 	if ((self = [super init])) {
-		if (![[NSBundle mainBundle] loadNibNamed:@"CompletionWindow" owner:self topLevelObjects:nil]) {
-			return nil;
-		}
+		/* Build completion window programmatically (replaces CompletionWindow.xib) */
+		window = [[ViCompletionWindow alloc] initWithContentRect:NSMakeRect(872, 469, 150, 300)
+							       styleMask:NSWindowStyleMaskBorderless
+								 backing:NSBackingStoreBuffered
+								   defer:YES];
+		[window setReleasedWhenClosed:NO];
+		[window setHasShadow:YES];
+
+		NSView *contentView = [window contentView];
+
+		/* Label at bottom */
+		label = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 150, 14)];
+		[label setEditable:NO];
+		[label setBordered:NO];
+		[label setDrawsBackground:NO];
+		[label setStringValue:@"Label"];
+		[label setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+		[[label cell] setControlSize:NSControlSizeSmall];
+		[[label cell] setScrollable:YES];
+		[[label cell] setLineBreakMode:NSLineBreakByClipping];
+		[label setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
+		[contentView addSubview:label];
+
+		/* Table view */
+		tableView = [[ViCompletionView alloc] initWithFrame:NSMakeRect(0, 0, 150, 287)];
+		[tableView setAllowsExpansionToolTips:YES];
+		[tableView setColumnAutoresizingStyle:NSTableViewLastColumnOnlyAutoresizingStyle];
+		[tableView setAllowsColumnReordering:NO];
+		[tableView setAllowsColumnResizing:NO];
+		[tableView setAllowsMultipleSelection:NO];
+		[tableView setAllowsEmptySelection:NO];
+		[tableView setIntercellSpacing:NSMakeSize(3, 2)];
+		[tableView setHeaderView:nil];
+		[tableView setDataSource:self];
+		[tableView setDelegate:self];
+
+		NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"completion"];
+		[column setWidth:147];
+		[column setMinWidth:40];
+		[column setMaxWidth:1000];
+		[column setEditable:NO];
+		[column setResizingMask:NSTableColumnAutoresizingMask | NSTableColumnUserResizingMask];
+		[tableView addTableColumn:column];
+
+		/* Scroll view */
+		NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 14, 150, 287)];
+		[scrollView setBorderType:NSNoBorder];
+		[scrollView setAutohidesScrollers:YES];
+		[scrollView setHasHorizontalScroller:NO];
+		[scrollView setHasVerticalScroller:YES];
+		[scrollView setDocumentView:tableView];
+		[scrollView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+		[contentView addSubview:scrollView];
 
 		tableView.keyManager = [ViKeyManager keyManagerWithTarget:self
 							       defaultMap:[ViMap completionMap]];
-
-		// ViTheme *theme = [ViThemeStore defaultTheme];
-		// [tableView setBackgroundColor:[_theme backgroundColor]];
-
-		// _matchParagraphStyle = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];
-		// [_matchParagraphStyle setLineBreakMode:NSLineBreakByTruncatingHead];
 	}
 	return self;
 }
@@ -664,7 +709,8 @@ objectValueForTableColumn:(NSTableColumn *)aTableColumn
 	       byExtendingSelection:NO];
 
 	/* Calling the delegate directly, but that's a weird delegate call anyway. */
-	[tableView.delegate tableViewSelectionDidChange:nil];
+	[tableView.delegate tableViewSelectionDidChange:
+		[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification object:tableView]];
 
 	return YES;
 }

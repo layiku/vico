@@ -25,7 +25,7 @@
 
 #import "ViPreferencePane.h"
 
-@interface ViPreferencePaneTheme : ViPreferencePane
+@interface ViPreferencePaneTheme : ViPreferencePane <NSFontChanging>
 {
 	IBOutlet NSPopUpButton *themeButton;
 	IBOutlet NSTextField *currentFont;

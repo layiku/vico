@@ -562,16 +562,16 @@ static void delimit(
 
   if (endline == lines + 1) {
     props->flags |= L_FIRST;
-    props->p = pre, props->s = suf;
+    props->p = pre; props->s = suf;
     return;
   }
 
   compresuflen(lines, endline, bodychars, body, pre, suf, &pre, &suf);
 
-  line = lines, prop = props;
+  line = lines; prop = props;
   do {
     prop->flags |= L_BODILESS;
-    prop->p = pre, prop->s = suf;
+    prop->p = pre; prop->s = suf;
     for (end = *line;  *end;  ++end);
     end -= suf;
     p = *line + pre;
@@ -590,14 +590,14 @@ static void delimit(
       anybodiless = 1;
       prop->rc = rc;
     }
-    ++line, ++prop;
+    ++line; ++prop;
   } while (line < endline);
 
   if (anybodiless) {
-    line = lines, prop = props;
+    line = lines; prop = props;
     do {
       if (isbodiless(prop)) {
-        ++line, ++prop;
+        ++line; ++prop;
         continue;
       }
 
@@ -607,7 +607,7 @@ static void delimit(
 
       delimit(line,nextline,bodychars,repeat,body,div,pre,suf,prop);
 
-      line = nextline, prop = nextprop;
+      line = nextline; prop = nextprop;
     } while (line < endline);
 
     return;
@@ -618,12 +618,12 @@ static void delimit(
     return;
   }
 
-  line = lines, prop = props;
+  line = lines; prop = props;
   status = ((*lines)[pre] == L' ');
   do {
     if (((*line)[pre] == L' ') == status)
       prop->flags |= L_FIRST;
-    ++line, ++prop;
+    ++line; ++prop;
   } while (line < endline);
 }
 
@@ -650,8 +650,9 @@ static void marksuperf(
     if (isvacant(prop)) {
       for (num = 0, p = *line;  *p;  ++p)
         if (*p != L' ') ++num;
-      if (inbody || num < mnum)
-        mnum = num, mprop = prop;
+      if (inbody || num < mnum) {
+        mnum = num; mprop = prop;
+      }
       inbody = 0;
     } else {
       if (!inbody) mprop->flags &= ~L_SUPERF;
@@ -850,7 +851,7 @@ int main(int argc, const char * const *argv)
       marksuperf((const wchar_t * const *) inlines,
                  (const wchar_t * const *) endline, props);
 
-    firstline = inlines, firstprop = props;
+    firstline = inlines; firstprop = props;
 
     do {
       if (isbodiless(firstprop)) {
@@ -873,7 +874,7 @@ int main(int argc, const char * const *argv)
             fwprintf(stdout, L"%ls\n", end - firstprop->s);
           }
         }
-        ++firstline, ++firstprop;
+        ++firstline; ++firstprop;
         continue;
       }
 
@@ -881,7 +882,7 @@ int main(int argc, const char * const *argv)
            nextline < endline && !isbodiless(nextprop) && !isfirst(nextprop);
            ++nextline, ++nextprop);
       
-      prefix = prefixbak, suffix = suffixbak;
+      prefix = prefixbak; suffix = suffixbak;
       setaffixes((const wchar_t * const *) firstline,
                  (const wchar_t * const *) nextline, firstprop, bodychars,
                  quotechars, hang, body, quote, &afp, &fs, &prefix, &suffix);
@@ -903,7 +904,7 @@ int main(int argc, const char * const *argv)
       freelines(outlines);
       outlines = NULL;
 
-      firstline = nextline, firstprop = nextprop;
+      firstline = nextline; firstprop = nextprop;
     } while (firstline < endline);
 
     freelines(inlines);

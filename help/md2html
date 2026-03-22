@@ -1,6 +1,7 @@
 #!/bin/sh
 
-MARKDOWN_PL=${MARKDOWN:-$HOME/bin/Markdown.pl}
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+MARKDOWN_PL=${MARKDOWN:-$SCRIPT_DIR/Markdown.pl}
 MARKDOWN="perl $MARKDOWN_PL --html4tags"
 
 head()
@@ -31,10 +32,11 @@ EOF
 while test -n "$1"; do
 	file=$1
 	title=$(sed -n '/^# /{s///;p;q;}' "$1")
-	echo "converting $file with title '$title'" >&2
+	html="$(basename "${file%.*}.html")"
+	echo "converting $file -> $html with title '$title'" >&2
 	(head "$file" "$title"
 	 $MARKDOWN "$file"
-	 tail)
+	 tail) > "$html"
 	shift
 done
 

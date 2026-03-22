@@ -26,7 +26,7 @@
 #import "ViPreferencePane.h"
 #import "ViScope.h"
 
-@interface ViPreferencePaneEdit : ViPreferencePane
+@interface ViPreferencePaneEdit : ViPreferencePane <NSTextFieldDelegate>
 {
 	IBOutlet NSWindow	*newPrefScopeSheet;
 	IBOutlet NSPopUpButton	*prefLanguage;

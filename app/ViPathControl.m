@@ -34,7 +34,7 @@
 	//bg.size.width += 1;
 	NSDrawWindowBackground(bg);
 	[[NSColor colorWithCalibratedWhite:0.3 alpha:0.2] set];
-	NSRectFillUsingOperation(bg, NSCompositeSourceAtop);
+	NSRectFillUsingOperation(bg, NSCompositingOperationSourceAtop);
 
 	NSRect frame = [self frame];
 	NSBezierPath *bezier = [NSBezierPath bezierPath];

@@ -124,7 +124,7 @@
 	BOOL highlighted = [[self enclosingMenuItem] isHighlighted];
 
 	if (enabled && highlighted) {
-		[[NSColor selectedMenuItemColor] set];
+		[[NSColor selectedContentBackgroundColor] set];
 		[[NSBezierPath bezierPathWithRect:[self bounds]] fill];
 	}
 

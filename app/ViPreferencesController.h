@@ -39,7 +39,7 @@
 /** The preferences controller manages the preferences window and allows
  * registering new preference panes.
  */
-@interface ViPreferencesController : NSWindowController <NSToolbarDelegate>
+@interface ViPreferencesController : NSWindowController <NSToolbarDelegate, NSWindowDelegate>
 {
 	NSView			*_blankView;
 	NSString		*_forceSwitchToItem;

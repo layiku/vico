@@ -25,7 +25,7 @@
 
 #import "ViOutlineView.h"
 
-@interface ViMarkInspector : NSWindowController
+@interface ViMarkInspector : NSWindowController <NSOutlineViewDelegate>
 {
 	IBOutlet NSTreeController	*markListController; // Top-level nib object
 	IBOutlet NSArrayController	*markStackController; // Top-level nibobj

@@ -353,7 +353,7 @@ wchar_t **reformat(
   affix = prefix + suffix;
   L = width - prefix - suffix;
 
-  line = inlines, suf = suffixes;
+  line = inlines; suf = suffixes;
   do {
     for (end = *line;  *end;  ++end);
     if (end - *line < affix) {
@@ -388,7 +388,7 @@ wchar_t **reformat(
       w1->flags = 0;
       p1 = p2;
     }
-    ++line, ++suf;
+    ++line; ++suf;
   } while (line < endline);
 
 /* If guess is 1, set flag values and merge words: */

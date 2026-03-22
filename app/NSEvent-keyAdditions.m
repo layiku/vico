@@ -60,10 +60,10 @@
 	DEBUG(@"decoding event %@", self);
 	DEBUG(@"ch = 0x%02x, without = 0x%02x, keycode = 0x%02x, flags = 0x%08x => s=%s, c=%s, a=%s, C=%s ",
 	    ch, without, keycode, quals,
-	    (quals & NSShiftKeyMask) ? "YES" : "NO",
-	    (quals & NSControlKeyMask) ? "YES" : "NO",
-	    (quals & NSAlternateKeyMask) ? "YES" : "NO",
-	    (quals & NSCommandKeyMask) ? "YES" : "NO"
+	    (quals & NSEventModifierFlagShift) ? "YES" : "NO",
+	    (quals & NSEventModifierFlagControl) ? "YES" : "NO",
+	    (quals & NSEventModifierFlagOption) ? "YES" : "NO",
+	    (quals & NSEventModifierFlagCommand) ? "YES" : "NO"
 	);
 
 	if (ch == 0x19 && keycode == kVK_Tab) {
@@ -71,43 +71,43 @@
 		without = 0x09;
 	}
 
-	if (!(quals & NSNumericPadKeyMask)) {
-		if ((quals & NSControlKeyMask)) {
+	if (!(quals & NSEventModifierFlagNumericPad)) {
+		if ((quals & NSEventModifierFlagControl)) {
 			/* Remove shift if it was used to generate a ctrl-[\]^_ */
 			if (key >= 0x1B && key < 0x20 &&
-			    (quals & NSDeviceIndependentModifierFlagsMask) == (NSControlKeyMask | NSShiftKeyMask))
-				quals &= ~NSShiftKeyMask;
+			    (quals & NSEventModifierFlagDeviceIndependentFlagsMask) == (NSEventModifierFlagControl | NSEventModifierFlagShift))
+				quals &= ~NSEventModifierFlagShift;
 
 			if (key < 0x20 && ((key != 0x1B && key != 0x0D && key != 0x09 && key != 0x19) || key != without) &&
-			    (quals & NSDeviceIndependentModifierFlagsMask) == NSControlKeyMask)
+			    (quals & NSEventModifierFlagDeviceIndependentFlagsMask) == NSEventModifierFlagControl)
 				/* only control pressed */
 				quals = 0;
 			else
 				key = without;
-		} else if (quals & NSAlternateKeyMask) {
+		} else if (quals & NSEventModifierFlagOption) {
 			if (0x20 < key && key < 0x7f && key != without)
-				quals &= ~NSAlternateKeyMask;
+				quals &= ~NSEventModifierFlagOption;
 			else
 				key = without;
-		} else if ((quals & (NSCommandKeyMask | NSShiftKeyMask)) == (NSCommandKeyMask | NSShiftKeyMask))
+		} else if ((quals & (NSEventModifierFlagCommand | NSEventModifierFlagShift)) == (NSEventModifierFlagCommand | NSEventModifierFlagShift))
 			key = without;
 
 		if ((0x20 < key && key < 0x7f) || key == 0x1E)
-			quals &= ~NSShiftKeyMask;
+			quals &= ~NSEventModifierFlagShift;
 	}
 
 	if (key > 0 && key < 0x20 && key != 0x1B && key != 0x0D && key != 0x09)
-		quals &= ~NSControlKeyMask;
+		quals &= ~NSEventModifierFlagControl;
 
-	unsigned int modifiers = quals & (NSShiftKeyMask | NSControlKeyMask | NSAlternateKeyMask | NSCommandKeyMask);
+	unsigned int modifiers = quals & (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand);
 
 	NSInteger enc = (modifiers | key);
 	DEBUG(@"key = %C (0x%04x / 0x%04x -> 0x%04x), s=%s, c=%s, a=%s, C=%s => 0x%04x",
 	    key ?: ' ', ch, without, key,
-	    (modifiers & NSShiftKeyMask) ? "YES" : "NO",
-	    (modifiers & NSControlKeyMask) ? "YES" : "NO",
-	    (modifiers & NSAlternateKeyMask) ? "YES" : "NO",
-	    (modifiers & NSCommandKeyMask) ? "YES" : "NO",
+	    (modifiers & NSEventModifierFlagShift) ? "YES" : "NO",
+	    (modifiers & NSEventModifierFlagControl) ? "YES" : "NO",
+	    (modifiers & NSEventModifierFlagOption) ? "YES" : "NO",
+	    (modifiers & NSEventModifierFlagCommand) ? "YES" : "NO",
 	    enc
 	);
 

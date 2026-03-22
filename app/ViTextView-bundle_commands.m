@@ -352,7 +352,7 @@
 
 		NSPoint point = [[self layoutManager] boundingRectForGlyphRange:NSMakeRange([self caret], 0)
 		                                                inTextContainer:[self textContainer]].origin;
-		NSEvent *ev = [NSEvent mouseEventWithType:NSRightMouseDown
+		NSEvent *ev = [NSEvent mouseEventWithType:NSEventTypeRightMouseDown
 				  location:[self convertPoint:point toView:nil]
 			     modifierFlags:0
 				 timestamp:[[NSDate date] timeIntervalSinceNow]

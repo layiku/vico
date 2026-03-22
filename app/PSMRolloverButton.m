@@ -30,7 +30,7 @@
 {
     // set rollover image
     [self setImage:_rolloverImage];
-    [self setNeedsDisplay];
+    self.needsDisplay = YES;
     [[self superview] setNeedsDisplay:YES]; // eliminates a drawing artifact
 }
 
@@ -38,7 +38,7 @@
 {
     // restore usual image
     [self setImage:_usualImage];
-    [self setNeedsDisplay];
+    self.needsDisplay = YES;
     [[self superview] setNeedsDisplay:YES]; // eliminates a drawing artifact
 }
 

@@ -138,9 +138,9 @@
 			[_addTabButton setRolloverImage:newButtonImage];
 		[_addTabButton setTitle:@""];
 		[_addTabButton setImagePosition:NSImageOnly];
-		[_addTabButton setButtonType:NSMomentaryChangeButton];
+		[_addTabButton setButtonType:NSButtonTypeMomentaryChange];
 		[_addTabButton setBordered:NO];
-		[_addTabButton setBezelStyle:NSShadowlessSquareBezelStyle];
+		[_addTabButton setBezelStyle:NSBezelStyleShadowlessSquare];
 		if(_showAddTabButton){
 			[_addTabButton setHidden:NO];
 		} else {
@@ -715,7 +715,7 @@
 
             // selected? set tab states...
             if([[cell representedObject] isEqualTo:[tabView selectedTabViewItem]]){
-                [cell setState:NSOnState];
+                [cell setState:NSControlStateValueOn];
                 tabState |= PSMTab_SelectedMask;
                 // previous cell
                 if(i > 0){
@@ -723,10 +723,10 @@
                 }
                 // next cell - see below
             } else {
-                [cell setState:NSOffState];
+                [cell setState:NSControlStateValueOff];
                 // see if prev cell was selected
                 if(i > 0){
-                    if([[_cells objectAtIndex:i-1] state] == NSOnState){
+                    if([[_cells objectAtIndex:i-1] state] == NSControlStateValueOn){
                         tabState |= PSMTab_LeftIsSelectedMask;
                     }
                 }
@@ -767,7 +767,7 @@
             [cell setIsInOverflowMenu:YES];
             [[cell indicator] removeFromSuperview];
             if ([(NSTabViewItem *)[cell representedObject] isEqualTo:[tabView selectedTabViewItem]])
-                [menuItem setState:NSOnState];
+                [menuItem setState:NSControlStateValueOn];
             if([cell hasIcon])
                 [menuItem setImage:[[[(NSTabViewItem *)[cell representedObject] identifier] content] icon]];
             if([cell count] > 0)
@@ -900,17 +900,6 @@
     return YES;
 }
 
-// NSDraggingSource
-- (NSDragOperation)draggingSourceOperationMaskForLocal:(BOOL)isLocal
-{
-    return (isLocal ? NSDragOperationMove : NSDragOperationNone);
-}
-
-- (BOOL)ignoreModifierKeysWhileDragging
-{
-    return YES;
-}
-
 // NSDraggingDestination
 - (NSDragOperation)draggingEntered:(id <NSDraggingInfo>)sender
 {
@@ -956,9 +945,19 @@
     return YES;
 }
 
-- (void)draggedImage:(NSImage *)anImage endedAt:(NSPoint)aPoint operation:(NSDragOperation)operation
+#pragma mark - NSDraggingSource
+
+- (NSDragOperation)draggingSession:(NSDraggingSession *)session
+    sourceOperationMaskForDraggingContext:(NSDraggingContext)context
 {
-    [[PSMTabDragAssistant sharedDragAssistant] draggedImageEndedAt:aPoint operation:operation];
+    return NSDragOperationMove;
+}
+
+- (void)draggingSession:(NSDraggingSession *)session
+           endedAtPoint:(NSPoint)screenPoint
+              operation:(NSDragOperation)operation
+{
+    [[PSMTabDragAssistant sharedDragAssistant] draggedImageEndedAt:screenPoint operation:operation];
 }
 
 - (void)concludeDragOperation:(id <NSDraggingInfo>)sender

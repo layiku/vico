@@ -46,7 +46,7 @@ enum {
     PSMTab_PositionSingleMask		= 1 << 7
 };
 
-@interface PSMTabBarControl : NSControl {
+@interface PSMTabBarControl : NSControl <NSDraggingSource, NSTabViewDelegate> {
     
     // control basics
     NSMutableArray              *_cells;                    // the cells that draw the tabs

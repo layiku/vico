@@ -185,20 +185,20 @@
 			if ([self scanString:@"c-"] ||
 			    [self scanString:@"ctrl-"] ||
 			    [self scanString:@"control-"])
-				modifiers |= NSControlKeyMask;
+				modifiers |= NSEventModifierFlagControl;
 			else if ([self scanString:@"a-"] ||
 				 [self scanString:@"m-"] ||
 				 [self scanString:@"alt-"] ||
 				 [self scanString:@"option-"] ||
 				 [self scanString:@"meta-"])
-				modifiers |= NSAlternateKeyMask;
+				modifiers |= NSEventModifierFlagOption;
 			else if ([self scanString:@"s-"] ||
 				 [self scanString:@"shift-"])
-				modifiers |= NSShiftKeyMask;
+				modifiers |= NSEventModifierFlagShift;
 			else if ([self scanString:@"d-"] ||
 				 [self scanString:@"cmd-"] ||
 				 [self scanString:@"command-"])
-				modifiers |= NSCommandKeyMask;
+				modifiers |= NSEventModifierFlagCommand;
 			else
 				gotModifier = NO;
 		} while (gotModifier);
@@ -261,7 +261,7 @@
 			int f;
 			if ((key == 'f' || key == 'F') && [self scanInt:&f]) {
 				key = NSF1FunctionKey + f - 1;
-			} else if (modifiers == NSControlKeyMask &&
+			} else if (modifiers == NSEventModifierFlagControl &&
 			    ((key >= 'a' && key <= 'z') ||
 			     key == '@' ||
 			     (key >= '[' && key <= '_'))) {

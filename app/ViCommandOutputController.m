@@ -29,9 +29,18 @@
 
 @implementation ViCommandOutputController
 
+- (void)loadView
+{
+	ViWebView *webView = [[ViWebView alloc] initWithFrame:NSMakeRect(0, 0, 558, 321)
+						configuration:[[WKWebViewConfiguration alloc] init]];
+	[webView setKeyManager:[ViKeyManager keyManagerWithTarget:webView
+						      defaultMap:[ViMap mapWithName:@"webMap"]]];
+	[self setView:webView];
+}
+
 - (ViCommandOutputController *)initWithHTMLString:(NSString *)content
 {
-	if ((self = [super initWithNibName:@"CommandOutputWindow" bundle:nil]) != nil) {
+	if ((self = [super initWithNibName:nil bundle:nil]) != nil) {
 		[self loadView];
 		[self setContent:content];
 		[self setTitle:@"command output"];
@@ -42,8 +51,7 @@
 - (void)setContent:(NSString *)content
 {
 	NSURL *baseURL = [NSURL fileURLWithPath:@"/" isDirectory:YES];
-	[[(ViWebView *)[self view] mainFrame] loadHTMLString:content
-						     baseURL:baseURL];
+	[(WKWebView *)[self view] loadHTMLString:content baseURL:baseURL];
 }
 
 @end

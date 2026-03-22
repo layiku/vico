@@ -452,6 +452,8 @@
 - (void)updateCaret;
 - (void)forceCursorColor:(BOOL)state;
 - (void)setCursorColor;
+- (void)windowBecameKey:(NSNotification *)notification;
+- (void)windowResignedKey:(NSNotification *)notification;
 @end
 
 @interface ViTextView (syntax)
@@ -464,6 +466,21 @@
 - (BOOL)move_right:(ViCommand *)command;
 - (BOOL)move_down:(ViCommand *)command;
 - (BOOL)move_up:(ViCommand *)command;
+- (BOOL)move_down_soft:(ViCommand *)command;
+- (BOOL)move_up_soft:(ViCommand *)command;
+- (BOOL)scroll_down_by_line:(ViCommand *)command;
+- (BOOL)scroll_up_by_line:(ViCommand *)command;
+- (BOOL)vi_undo:(ViCommand *)command;
+- (BOOL)visual:(ViCommand *)command;
+- (BOOL)visual_other:(ViCommand *)command;
+- (BOOL)visual_line:(ViCommand *)command;
+- (BOOL)shift_right:(ViCommand *)command;
+- (BOOL)shift_left:(ViCommand *)command;
+- (BOOL)subst_lines:(ViCommand *)command;
+- (BOOL)move_to_char:(ViCommand *)command;
+- (BOOL)move_til_char:(ViCommand *)command;
+- (BOOL)move_back_to_char:(ViCommand *)command;
+- (BOOL)move_back_til_char:(ViCommand *)command;
 - (BOOL)delete:(ViCommand *)command;
 - (BOOL)yank:(ViCommand *)command;
 - (BOOL)jumplist_forward:(ViCommand *)command;

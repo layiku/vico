@@ -56,7 +56,213 @@
 // Should not be called directly by anyone except this class
 - (id) init
 {
-	return [super initWithWindowNibName:@"SFBCrashReporterWindow" owner:self];
+	if ((self = [super initWithWindow:nil]) != nil) {
+		[self buildWindow];
+	}
+	return self;
+}
+
+- (void) buildWindow
+{
+	// Window: 453×365, titled, autosave "SFBCrashReporterWindow"
+	NSWindow *win = [[NSWindow alloc] initWithContentRect:NSMakeRect(196, 145, 453, 365)
+						    styleMask:NSWindowStyleMaskTitled
+						      backing:NSBackingStoreBuffered
+							defer:YES];
+	[win setFrameAutosaveName:@"SFBCrashReporterWindow"];
+	[win setAutorecalculatesKeyViewLoop:NO];
+	[win setAnimationBehavior:NSWindowAnimationBehaviorDefault];
+	[win setDelegate:self];
+
+	NSView *contentView = [win contentView];
+
+	// App icon image: {20, 281, 64, 64}
+	NSImageView *iconView = [[NSImageView alloc] initWithFrame:NSMakeRect(20, 281, 64, 64)];
+	[iconView setImage:[NSApp applicationIconImage]];
+	[iconView setImageScaling:NSImageScaleProportionallyDown];
+	[iconView setEditable:NO];
+	[iconView setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
+	[contentView addSubview:iconView];
+
+	// Crash message label: {89, 294, 344, 51} — bold system font
+	// Uses displayPatternValue1 binding to show app name
+	NSTextField *crashMessageLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(89, 294, 344, 51)];
+	[crashMessageLabel setStringValue:@""];
+	[crashMessageLabel setEditable:NO];
+	[crashMessageLabel setBordered:NO];
+	[crashMessageLabel setSelectable:NO];
+	[crashMessageLabel setDrawsBackground:NO];
+	[crashMessageLabel setFont:[NSFont boldSystemFontOfSize:13.0]];
+	[crashMessageLabel setTextColor:[NSColor controlTextColor]];
+	[crashMessageLabel setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
+	[crashMessageLabel bind:@"displayPatternValue1"
+		       toObject:self
+		    withKeyPath:@"applicationName"
+			options:@{@"NSDisplayPattern": @"%{value1}@ crashed the last time it was run.  Would you like to submit a crash report to the developers?"}];
+	[contentView addSubview:crashMessageLabel];
+
+	// Progress indicator: {414, 256, 16, 16} — small spinning, hidden when stopped
+	_progressIndicator = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(414, 256, 16, 16)];
+	[_progressIndicator setStyle:NSProgressIndicatorStyleSpinning];
+	[_progressIndicator setControlSize:NSControlSizeSmall];
+	[_progressIndicator setIndeterminate:YES];
+	[_progressIndicator setDisplayedWhenStopped:NO];
+	[_progressIndicator setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
+	[contentView addSubview:_progressIndicator];
+
+	// "What were you doing..." label: {17, 256, 281, 17}
+	NSTextField *questionLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(17, 256, 281, 17)];
+	[questionLabel setStringValue:@"What were you doing when the application crashed?"];
+	[questionLabel setEditable:NO];
+	[questionLabel setBordered:NO];
+	[questionLabel setSelectable:NO];
+	[questionLabel setDrawsBackground:NO];
+	[questionLabel setFont:[NSFont systemFontOfSize:11.0]];
+	[questionLabel setTextColor:[NSColor controlTextColor]];
+	[contentView addSubview:questionLabel];
+
+	// ScrollView with comments TextView: {20, 130, 413, 118}
+	NSScrollView *scrollView = [[NSScrollView alloc] initWithFrame:NSMakeRect(20, 130, 413, 118)];
+	[scrollView setHasVerticalScroller:YES];
+	[scrollView setHasHorizontalScroller:NO];
+	[scrollView setBorderType:NSBezelBorder];
+
+	NSSize contentSize = [scrollView contentSize];
+	_commentsTextView = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, contentSize.width, contentSize.height)];
+	[_commentsTextView setMinSize:NSMakeSize(contentSize.width, contentSize.height)];
+	[_commentsTextView setMaxSize:NSMakeSize(FLT_MAX, FLT_MAX)];
+	[_commentsTextView setVerticallyResizable:YES];
+	[_commentsTextView setHorizontallyResizable:NO];
+	[_commentsTextView setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[[_commentsTextView textContainer] setContainerSize:NSMakeSize(contentSize.width, FLT_MAX)];
+	[[_commentsTextView textContainer] setWidthTracksTextView:YES];
+	[_commentsTextView setRichText:NO];
+	[_commentsTextView setImportsGraphics:NO];
+	[_commentsTextView setContinuousSpellCheckingEnabled:YES];
+	[_commentsTextView setUsesRuler:YES];
+	[_commentsTextView setUsesFontPanel:YES];
+	[_commentsTextView setSmartInsertDeleteEnabled:YES];
+	[_commentsTextView setDelegate:self];
+
+	// Set default placeholder text
+	NSFont *defaultFont = [NSFont fontWithName:@"LucidaGrande" size:10.0];
+	if (!defaultFont)
+		defaultFont = [NSFont systemFontOfSize:10.0];
+	NSDictionary *attrs = @{NSFontAttributeName: defaultFont};
+	NSAttributedString *defaultText = [[NSAttributedString alloc] initWithString:@"Please enter a brief description of the actions which caused the crash." attributes:attrs];
+	[[_commentsTextView textStorage] setAttributedString:defaultText];
+
+	[scrollView setDocumentView:_commentsTextView];
+	[contentView addSubview:scrollView];
+
+	// Checkbox: "Include anonymous system information" {18, 106, 272, 18}
+	NSButton *sysInfoCheckbox = [NSButton checkboxWithTitle:@"Include anonymous system information" target:nil action:nil];
+	[sysInfoCheckbox setFrame:NSMakeRect(18, 106, 272, 18)];
+	[sysInfoCheckbox bind:@"value"
+		     toObject:[NSUserDefaultsController sharedUserDefaultsController]
+		  withKeyPath:@"values.SFBCrashReporterIncludeAnonymousSystemInformation"
+		      options:nil];
+	[contentView addSubview:sysInfoCheckbox];
+
+	// Checkbox: "Include my e-mail address" {18, 86, 190, 18}
+	NSButton *emailCheckbox = [NSButton checkboxWithTitle:@"Include my e-mail address" target:nil action:nil];
+	[emailCheckbox setFrame:NSMakeRect(18, 86, 190, 18)];
+	[emailCheckbox bind:@"value"
+		   toObject:[NSUserDefaultsController sharedUserDefaultsController]
+		withKeyPath:@"values.SFBCrashReporterIncludeEmailAddress"
+		    options:nil];
+	[contentView addSubview:emailCheckbox];
+
+	// "E-mail address:" label: {29, 60, 103, 17}
+	NSTextField *emailLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(29, 60, 103, 17)];
+	[emailLabel setStringValue:@"E-mail address:"];
+	[emailLabel setEditable:NO];
+	[emailLabel setBordered:NO];
+	[emailLabel setSelectable:NO];
+	[emailLabel setDrawsBackground:NO];
+	[emailLabel setFont:[NSFont systemFontOfSize:13.0]];
+	[emailLabel setTextColor:[NSColor controlTextColor]];
+	[emailLabel setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
+	[contentView addSubview:emailLabel];
+
+	// E-mail text field: {137, 58, 211, 22} — editable, bindings
+	NSTextField *emailField = [[NSTextField alloc] initWithFrame:NSMakeRect(137, 58, 211, 22)];
+	[emailField setEditable:YES];
+	[emailField setSelectable:YES];
+	[emailField setBordered:YES];
+	[emailField setBezeled:YES];
+	[emailField setBezelStyle:NSTextFieldSquareBezel];
+	[emailField setDrawsBackground:YES];
+	[emailField setFont:[NSFont systemFontOfSize:13.0]];
+	[emailField setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
+	// Bind value to File's Owner emailAddress
+	[emailField bind:@"value"
+		toObject:self
+	     withKeyPath:@"emailAddress"
+		 options:nil];
+	// Bind enabled to NSUserDefaults SFBCrashReporterIncludeEmailAddress
+	[emailField bind:@"enabled"
+		toObject:[NSUserDefaultsController sharedUserDefaultsController]
+	     withKeyPath:@"values.SFBCrashReporterIncludeEmailAddress"
+		 options:nil];
+	[contentView addSubview:emailField];
+
+	// Report button: {343, 12, 96, 32} — keyEquivalent: Return
+	_reportButton = [[NSButton alloc] initWithFrame:NSMakeRect(343, 12, 96, 32)];
+	[_reportButton setTitle:@"Report"];
+	[_reportButton setBezelStyle:NSBezelStyleRounded];
+	[_reportButton setKeyEquivalent:@"\r"];
+	[_reportButton setTarget:self];
+	[_reportButton setAction:@selector(sendReport:)];
+	[_reportButton setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
+	[contentView addSubview:_reportButton];
+
+	// Ignore button: {247, 12, 96, 32} — keyEquivalent: Escape
+	_ignoreButton = [[NSButton alloc] initWithFrame:NSMakeRect(247, 12, 96, 32)];
+	[_ignoreButton setTitle:@"Ignore"];
+	[_ignoreButton setBezelStyle:NSBezelStyleRounded];
+	[_ignoreButton setKeyEquivalent:@"\033"];
+	[_ignoreButton setTarget:self];
+	[_ignoreButton setAction:@selector(ignoreReport:)];
+	[_ignoreButton setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
+	[contentView addSubview:_ignoreButton];
+
+	// Discard button: {14, 12, 96, 32} — keyEquivalent: Cmd+D
+	_discardButton = [[NSButton alloc] initWithFrame:NSMakeRect(14, 12, 96, 32)];
+	[_discardButton setTitle:@"Discard"];
+	[_discardButton setBezelStyle:NSBezelStyleRounded];
+	[_discardButton setKeyEquivalent:@"d"];
+	[_discardButton setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
+	[_discardButton setTarget:self];
+	[_discardButton setAction:@selector(discardReport:)];
+	[_discardButton setAutoresizingMask:(NSViewMaxXMargin | NSViewMinYMargin)];
+	[contentView addSubview:_discardButton];
+
+	[self setWindow:win];
+
+	// --- windowDidLoad logic (won't be called automatically without nib) ---
+
+	// Set the window's title
+	NSString *appName = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleName"];
+	NSString *appShortVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+
+	NSString *windowTitle;
+	if (!appShortVersion)
+		windowTitle = [NSString stringWithFormat:NSLocalizedString(@"Crash Reporter: %@", @""), appName];
+	else
+		windowTitle = [NSString stringWithFormat:NSLocalizedString(@"Crash Reporter: %@ (%@)", @""), appName, appShortVersion];
+
+	[win setTitle:windowTitle];
+
+	// Populate the e-mail field with the user's primary e-mail address
+	ABMultiValue *emailAddresses = [[[ABAddressBook sharedAddressBook] me] valueForProperty:kABEmailProperty];
+	self.emailAddress = (NSString *)[emailAddresses valueForIdentifier:[emailAddresses primaryIdentifier]];
+
+	// Set the font for the comments
+	[_commentsTextView setTypingAttributes:@{NSFontAttributeName: [NSFont systemFontOfSize:10.0]}];
+
+	// Select the comments text
+	[_commentsTextView setSelectedRange:NSMakeRange(0, NSUIntegerMax)];
 }
 
 - (void) dealloc
@@ -64,33 +270,7 @@
 	_emailAddress = nil;
 	_crashLogPath = nil;
 	_submissionURL = nil;
-	_urlConnection = nil;
-	_responseData = nil;
-}
 
-- (void) windowDidLoad
-{
-	// Set the window's title
-	NSString *applicationName = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleName"];
-	NSString *applicationShortVersion = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
-	
-	NSString *windowTitle;
-	if(!applicationShortVersion)
-		windowTitle = [NSString stringWithFormat:NSLocalizedString(@"Crash Reporter: %@", @""), applicationName];
-	else
-		windowTitle = [NSString stringWithFormat:NSLocalizedString(@"Crash Reporter: %@ (%@)", @""), applicationName, applicationShortVersion];
-
-	[[self window] setTitle:windowTitle];
-	
-	// Populate the e-mail field with the user's primary e-mail address
-	ABMultiValue *emailAddresses = [[[ABAddressBook sharedAddressBook] me] valueForProperty:kABEmailProperty];
-	self.emailAddress = (NSString *)[emailAddresses valueForIdentifier:[emailAddresses primaryIdentifier]];
-
-	// Set the font for the comments
-	[_commentsTextView setTypingAttributes:[NSDictionary dictionaryWithObject:[NSFont systemFontOfSize:10.0] forKey:NSFontAttributeName]];
-
-	// Select the comments text
-	[_commentsTextView setSelectedRange:NSMakeRange(0, NSUIntegerMax)];
 }
 
 #pragma mark Action Methods
@@ -198,7 +378,8 @@
 		[formValues setObject:self.emailAddress forKey:@"emailAddress"];
 	
 	// Optional comments
-	NSAttributedString *attributedComments = [_commentsTextView attributedSubstringFromRange:NSMakeRange(0, NSUIntegerMax)];
+	NSRange fullRange = NSMakeRange(0, [[_commentsTextView textStorage] length]);
+	NSAttributedString *attributedComments = [_commentsTextView attributedSubstringForProposedRange:fullRange actualRange:NULL];
 	if([[attributedComments string] length])
 		[formValues setObject:[attributedComments string] forKey:@"comments"];
 	
@@ -271,43 +452,56 @@
 	[_discardButton setEnabled:NO];
 	
 	// Submit the URL request
-	_urlConnection = [[NSURLConnection alloc] initWithRequest:urlRequest delegate:self];
+	[[[NSURLSession sharedSession] dataTaskWithRequest:urlRequest
+	                               completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+		dispatch_async(dispatch_get_main_queue(), ^{
+			if (error) {
+				[self showSubmissionFailedSheet:error];
+				return;
+			}
+			NSString *responseString = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+			if ([responseString isEqualToString:@"ok"]) {
+				NSFileManager *fileManager = [[NSFileManager alloc] init];
+				NSDictionary *fileAttributes = [fileManager attributesOfItemAtPath:[self.crashLogPath stringByResolvingSymlinksInPath] error:nil];
+				[[NSUserDefaults standardUserDefaults] setObject:[fileAttributes fileModificationDate] forKey:@"SFBCrashReporterLastCrashReportDate"];
+				NSError *removeError = nil;
+				if (![fileManager removeItemAtPath:self.crashLogPath error:&removeError])
+					NSLog(@"SFBCrashReporter error: Unable to delete the submitted crash log (%@): %@", [self.crashLogPath lastPathComponent], [removeError localizedDescription]);
+				[self showSubmissionSucceededSheet];
+			} else {
+				NSDictionary *userInfo = [NSDictionary dictionaryWithObjectsAndKeys:NSLocalizedString(@"Unrecognized response from the server", @""), NSLocalizedDescriptionKey, nil];
+				[self showSubmissionFailedSheet:[NSError errorWithDomain:NSPOSIXErrorDomain code:EPROTO userInfo:userInfo]];
+			}
+		});
+	}] resume];
 }
 
 - (void) showSubmissionSucceededSheet
 {
 	[_progressIndicator stopAnimation:self];
-		
-	NSBeginAlertSheet(NSLocalizedString(@"The crash report was successfully submitted.", @""), 
-					  nil /* Use the default button title, */, 
-					  nil, 
-					  nil, 
-					  [self window], 
-					  self, 
-					  @selector(showSubmissionSheetDidEnd:returnCode:contextInfo:), 
-					  NULL, 
-					  NULL, 
-					  NSLocalizedString(@"Thank you for taking the time to help improve %@!", @""), 
-					  [self applicationName]);
+
+	NSAlert *alert = [[NSAlert alloc] init];
+	alert.messageText = NSLocalizedString(@"The crash report was successfully submitted.", @"");
+	alert.informativeText = [NSString stringWithFormat:NSLocalizedString(@"Thank you for taking the time to help improve %@!", @""), [self applicationName]];
+	[alert addButtonWithTitle:NSLocalizedString(@"OK", @"")];
+	[alert beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse returnCode) {
+		[self showSubmissionSheetDidEnd:nil returnCode:(int)returnCode contextInfo:NULL];
+	}];
 }
 
 - (void) showSubmissionFailedSheet:(NSError *)error
 {
 	NSParameterAssert(nil != error);
-	
+
 	[_progressIndicator stopAnimation:self];
-	
-	NSBeginAlertSheet(NSLocalizedString(@"An error occurred while submitting the crash report.", @""), 
-					  nil /* Use the default button title, */, 
-					  nil, 
-					  nil, 
-					  [self window], 
-					  self, 
-					  @selector(showSubmissionSheetDidEnd:returnCode:contextInfo:), 
-					  NULL, 
-					  NULL, 
-					  NSLocalizedString(@"The error was: %@", @""), 
-					  [error localizedDescription]);
+
+	NSAlert *alert = [[NSAlert alloc] init];
+	alert.messageText = NSLocalizedString(@"An error occurred while submitting the crash report.", @"");
+	alert.informativeText = [NSString stringWithFormat:NSLocalizedString(@"The error was: %@", @""), [error localizedDescription]];
+	[alert addButtonWithTitle:NSLocalizedString(@"OK", @"")];
+	[alert beginSheetModalForWindow:[self window] completionHandler:^(NSModalResponse returnCode) {
+		[self showSubmissionSheetDidEnd:nil returnCode:(int)returnCode contextInfo:NULL];
+	}];
 }
 
 #pragma mark NSTextView delegate methods
@@ -326,76 +520,5 @@
     return NO;
 }
 
-#pragma mark NSURLConnection delegate methods
-
-- (void) connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response
-{
-
-#pragma unused(connection)
-#pragma unused(response)
-
-	_responseData = [[NSMutableData alloc] init];
-}
-
-- (void) connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
-{
-
-#pragma unused(connection)
-
-	[_responseData appendData:data];
-}
-
-- (void) connectionDidFinishLoading:(NSURLConnection *)connection
-{
-
-#pragma unused(connection)
-
-	// A valid response is simply the string 'ok'
-	NSString *responseString = [[NSString alloc] initWithData:_responseData encoding:NSUTF8StringEncoding];
-	BOOL responseOK = [responseString isEqualToString:@"ok"];
-
-	responseString = nil;
-	_urlConnection = nil;
-	_responseData = nil;
-	
-	if(responseOK) {
-		// Create our own instance since this method could be called from a background thread
-		NSFileManager *fileManager = [[NSFileManager alloc] init];
-		
-		// Use the file's modification date as the last submitted crash date
-		NSDictionary *fileAttributes = [fileManager attributesOfItemAtPath:[self.crashLogPath  stringByResolvingSymlinksInPath] error:nil];
-		NSDate *fileModificationDate = [fileAttributes fileModificationDate];
-		
-		[[NSUserDefaults standardUserDefaults] setObject:fileModificationDate forKey:@"SFBCrashReporterLastCrashReportDate"];
-		
-		// Delete the crash log since it is no longer needed
-		NSError *error = nil;
-		if(![fileManager removeItemAtPath:self.crashLogPath error:&error])
-			NSLog(@"SFBCrashReporter error: Unable to delete the submitted crash log (%@): %@", [self.crashLogPath lastPathComponent], [error localizedDescription]);
-
-		fileManager = nil;
-		
-		// Even though the log wasn't deleted, submission was still successful
-		[self performSelectorOnMainThread: @selector(showSubmissionSucceededSheet) withObject:nil waitUntilDone:NO];
-	}
-	// An error occurred on the server
-	else {
-		NSDictionary *userInfo = [NSDictionary dictionaryWithObjectsAndKeys:NSLocalizedString(@"Unrecognized response from the server", @""), NSLocalizedDescriptionKey, nil];
-		NSError *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:EPROTO userInfo:userInfo];
-
-		[self performSelectorOnMainThread: @selector(showSubmissionFailedSheet:) withObject:error waitUntilDone:NO];
-	}
-}
-
-- (void) connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
-{
-
-#pragma unused(connection)
-
-	_urlConnection = nil;
-	_responseData = nil;
-
-	[self performSelectorOnMainThread:@selector(showSubmissionFailedSheet:) withObject:error waitUntilDone:NO];
-}
 
 @end

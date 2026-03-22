@@ -14,7 +14,7 @@
 - (id)initWithFrame:(NSRect)frameRect pullsDown:(BOOL)flag
 {
 	if ((self = [super initWithFrame:frameRect pullsDown:YES]) != nil) {
-		[self setBezelStyle:NSRegularSquareBezelStyle];
+		[self setBezelStyle:NSBezelStyleRegularSquare];
 		[self setBordered:NO];
 		[self setTitle:@""];
 		[self setPreferredEdge:NSMaxXEdge];
@@ -39,7 +39,7 @@
     if([self isFlipped]) {
         rect.origin.y += imageSize.height;
     }
-	[image drawAtPoint:rect.origin fromRect:NSZeroRect operation:NSCompositeSourceOver fraction:1.0];
+	[image drawAtPoint:rect.origin fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1.0];
 }
 
 - (void)mouseDown:(NSEvent *)event

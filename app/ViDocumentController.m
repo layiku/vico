@@ -277,9 +277,9 @@
 	return [_openDocs objectForKey:absoluteURL];
 }
 
-- (id)openDocumentWithContentsOfURL:(NSURL *)absoluteURL
-                            display:(BOOL)displayDocument
-                              error:(NSError **)outError
+- (void)openDocumentWithContentsOfURL:(NSURL *)absoluteURL
+                              display:(BOOL)displayDocument
+                    completionHandler:(void (^)(NSDocument *document, BOOL documentWasAlreadyOpen, NSError *error))completionHandler
 {
 	absoluteURL = [absoluteURL absoluteURL];
 	DEBUG(@"open %@", absoluteURL);
@@ -301,33 +301,29 @@
 				[[[doc windowController] window] makeKeyAndOrderFront:nil];
 			}
 		}
-		return doc;
+		if (completionHandler) completionHandler(doc, YES, nil);
+		return;
 	}
 
 	NSNumber *lineNumber = nil;
 	NSURL *url = [TxmtURLProtocol parseURL:absoluteURL intoLineNumber:&lineNumber];
 	if (url == nil) {
-		if (outError)
-			*outError = [ViError errorWithFormat:@"invalid URL"];
-		return nil;
+		if (completionHandler) completionHandler(nil, NO, [ViError errorWithFormat:@"invalid URL"]);
+		return;
 	}
 
 	if (![self supportedURLScheme:url]) {
-		if (outError)
-			*outError = [ViError errorWithFormat:@"Unsupported URL scheme '%@'",
-			    [url scheme]];
-		return nil;
+		if (completionHandler) completionHandler(nil, NO, [ViError errorWithFormat:@"Unsupported URL scheme '%@'", [url scheme]]);
+		return;
 	}
 
-	doc = [super openDocumentWithContentsOfURL:url
-					   display:displayDocument
-					     error:outError];
-	if (doc && !displayDocument && ![doc isKindOfClass:[ViProject class]]) {
-		[doc addWindowController:windowController];
-		[windowController addDocument:doc];
-	}
-
-	return doc;
+	[super openDocumentWithContentsOfURL:url display:displayDocument completionHandler:^(NSDocument *document, BOOL documentWasAlreadyOpen, NSError *error) {
+		if (document && !displayDocument && ![document isKindOfClass:[ViProject class]]) {
+			[document addWindowController:windowController];
+			[windowController addDocument:(ViDocument *)document];
+		}
+		if (completionHandler) completionHandler(document, documentWasAlreadyOpen, error);
+	}];
 }
 
 - (NSURL *)normalizePath:(NSString *)filename
@@ -345,7 +341,7 @@
 			relURL = [NSURL fileURLWithPath:@"/"];
 	}
 
-	NSString *escapedFilename = [filename stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+	NSString *escapedFilename = [filename stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
 	NSURL *url = [NSURL URLWithString:escapedFilename relativeToURL:relURL];
 	NSURL *normalizedURL = [[ViURLManager defaultManager] normalizeURL:url];
 	DEBUG(@"normalized %@ -> %@", url, normalizedURL);
