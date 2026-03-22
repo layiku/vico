@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=“Images/vico-logo.png" alt="Vico" width="128" height="128">
+  <img src=“Images/vico-logo.png“ alt="Vico" width="128" height="128">
 </p>
 
 <h1 align="center">Vico</h1>
